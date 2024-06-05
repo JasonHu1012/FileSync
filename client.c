@@ -1,4 +1,10 @@
-// TODO: when read file content, read with fixed size iteratively
+// TODO: program terminates when updating file
+// TODO: verbose log option
+// TODO: log with perror, maybe use variadic macro
+// TODO: prohibit absolute path and ".." in remote dir?
+// consider `traverse`, prefix initial values is remote dir and it should be relative path
+// TODO: function too long
+// TODO: when update, set the same update time
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,8 +19,6 @@
 #include "json.h"
 #include "arg_parser.h"
 #include "utils.h"
-
-#define ERR_EXIT(s) fprintf(stderr, "fatal: %s: %s\n", s, strerror(errno)); exit(1)
 
 typedef struct {
     int port;
@@ -43,14 +47,14 @@ void load_config_default() {
 void load_config_file(char *path) {
     int fd = open(path, O_RDONLY);
     if (fd == -1) {
-        fprintf(stderr, "error: open config file failed\n");
+        fprintf(stderr, "error: open config file %s failed\n", path);
         return;
     }
 
     // get file size
     struct stat st;
     if (fstat(fd, &st) == -1) {
-        fprintf(stderr, "error: get config file status failed\n");
+        fprintf(stderr, "error: get config file %s status failed\n", path);
         close(fd);
         return;
     }
@@ -61,7 +65,7 @@ void load_config_file(char *path) {
     close(fd);
     if (len != st.st_size) {
         if (len == -1) {
-            fprintf(stderr, "error: read config file failed\n");
+            fprintf(stderr, "error: read config file %s failed\n", path);
         }
         free(buf);
         return;
@@ -151,52 +155,203 @@ int init_socket(char *host, int port) {
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     if (inet_aton(host, &addr.sin_addr) == 0) {
-        fprintf(stderr, "fatal: host invalid\n");
+        fprintf(stderr, "fatal: invalid host %s\n", host);
         exit(1);
     };
 
     if (connect(conn_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+        fprintf(stderr, "warning: is server alive?\n");
         ERR_EXIT("connect");
     }
 
     return conn_fd;
 }
 
-// requested result is stored in `*json`
+// info is stored in `*info`
 // return 0 when success, -1 when error
-int request_info(int conn_fd, char *path, json_data **json, char **buf, int *buf_size) {
-    // [0][path length][path]
-    *buf_size = extend_buf(buf, *buf_size, sizeof(int) * 2);
+int request_info(int conn_fd, char *path, json_data **info, char **buf, long long *buf_size) {
+    // send [0][path length][path]
+    *buf_size = extend_buf(buf, *buf_size, sizeof(int));
     ((int *)*buf)[0] = htonl(0);
-    ((int *)*buf)[1] = htonl(strlen(path));
-    if (bulk_write(conn_fd, *buf, sizeof(int) * 2) != sizeof(int) * 2) {
-        fprintf(stderr, "error: request info failed\n");
+    if (bulk_write(conn_fd, *buf, sizeof(int)) != sizeof(int)) {
+        fprintf(stderr, "error: request %s info failed\n", path);
+        return -1;
+    }
+    ((long long *)*buf)[0] = my_htonll(strlen(path));
+    if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
+        fprintf(stderr, "error: request %s info failed\n", path);
         return -1;
     }
     if (bulk_write(conn_fd, path, strlen(path)) != strlen(path)) {
-        fprintf(stderr, "error: request info failed\n");
+        fprintf(stderr, "error: request %s info failed\n", path);
         return -1;
     }
-    printf("requested info of %s\n", path);
+    printf("requested %s info\n", path);
 
     // get requested result
-    int message_len;
-    if (bulk_read(conn_fd, &message_len, sizeof(int)) != sizeof(int)) {
-        fprintf(stderr, "error: receive info failed\n");
+    long long message_len;
+    if (bulk_read(conn_fd, &message_len, sizeof(long long)) != sizeof(long long)) {
+        fprintf(stderr, "error: receive %s info failed\n", path);
         return -1;
     }
-    message_len = ntohl(message_len);
+    message_len = my_ntohll(message_len);
 
     *buf_size = extend_buf(buf, *buf_size, message_len);
     if (bulk_read(conn_fd, *buf, message_len) != message_len) {
-        fprintf(stderr, "error: receive info failed\n");
+        fprintf(stderr, "error: receive %s info failed\n", path);
         return -1;
     }
     (*buf)[message_len] = 0;
-    printf("received info (%d bytes)\n", message_len);
+    printf("received %s info (%lld bytes)\n", path, message_len);
 
     // convert result to json
-    *json = json_parse(*buf);
+    *info = json_parse(*buf);
+
+    return 0;
+}
+
+// received content will be written to file
+// return 0 when success, -1 when error
+int request_content(int conn_fd, char *path, char **buf, long long *buf_size) {
+    int const BLOCK_SIZE = 4096;
+
+    // send [1][path length][path]
+    *buf_size = extend_buf(buf, *buf_size, sizeof(int));
+    ((int *)*buf)[0] = htonl(1);
+    if (bulk_write(conn_fd, *buf, sizeof(int)) != sizeof(int)) {
+        fprintf(stderr, "error: request %s content failed\n", path);
+        return -1;
+    }
+    *buf_size = extend_buf(buf, *buf_size, sizeof(long long));
+    ((long long *)*buf)[0] = my_htonll(strlen(path));
+    if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
+        fprintf(stderr, "error: request %s content failed\n", path);
+        return -1;
+    }
+    if (bulk_write(conn_fd, path, strlen(path)) != strlen(path)) {
+        fprintf(stderr, "error: request %s content failed\n", path);
+        return -1;
+    }
+    printf("requested %s content\n", path);
+
+    // get requested content length
+    long long message_len;
+    if (bulk_read(conn_fd, &message_len, sizeof(long long)) != sizeof(long long)) {
+        fprintf(stderr, "error: receive %s content failed\n", path);
+        return -1;
+    }
+    message_len = my_ntohll(message_len);
+
+    // open file
+    int file_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (file_fd == -1) {
+        fprintf(stderr, "error: open %s failed\n", path);
+        return -1;
+    }
+
+    // get content and write to file
+    *buf_size = extend_buf(buf, *buf_size, BLOCK_SIZE);
+    long long receive_len = 0;
+    while (receive_len < message_len) {
+        // get content
+        int len = bulk_read(conn_fd, *buf, MIN(BLOCK_SIZE, message_len - receive_len));
+        if (len == 0 || len == -1) {
+            fprintf(stderr, "error: receive %s content failed\n", path);
+            close(file_fd);
+            return -1;
+        }
+        receive_len += len;
+
+        // write to file
+        if (bulk_write(file_fd, *buf, len) != len) {
+            fprintf(stderr, "error: write %s content to file failed\n", path);
+            close(file_fd);
+            return -1;
+        }
+    }
+    printf("receive %s content (%lld bytes)\n", path, receive_len);
+
+    close(file_fd);
+
+    return 0;
+}
+
+// the working directory is the directory specified by `info`
+// return 0 when success, -1 when error
+int traverse(int conn_fd, json_data *info, char *prefix, char **buf, long long *buf_size) {
+    json_data *entries = json_obj_get(info, "entries");
+    int entries_size = json_arr_size(entries);
+    for (int i = 0; i < entries_size; i++) {
+        json_data *sub_info = json_arr_get(entries, i);
+
+        char *name = json_str_get(json_obj_get(sub_info, "name"));
+        char *path = (char *)malloc(sizeof(char) * (strlen(prefix) + strlen(name) + 2));
+        sprintf(path, "%s/%s", prefix, name);
+        free(name);
+
+        char *type = json_str_get(json_obj_get(sub_info, "type"));
+        if (!strcmp(type, "file")) {
+            free(type);
+
+            struct stat st;
+            if (stat(path, &st) == -1) {
+                if (errno == ENOENT) {
+                    // the file doesn't exist, request content
+                    if (request_content(conn_fd, path, buf, buf_size) == -1) {
+                        free(path);
+                        return -1;
+                    }
+                }
+                else {
+                    fprintf(stderr, "error: get %s status failed\n", path);
+                    free(path);
+                    return -1;
+                }
+            }
+
+            else {
+                // compare update time
+                long long update_time = (long long)json_num_get(json_obj_get(sub_info, "updateTime"));
+                if (st.st_mtime < update_time) {
+                    // local file is out of date, request content
+                    if (request_content(conn_fd, path, buf, buf_size) == -1) {
+                        free(path);
+                        return -1;
+                    }
+                }
+            }
+        }
+
+        else if (!strcmp(type, "directory")) {
+            free(type);
+
+            if (access(path, F_OK) == -1) {
+                // the directory doesn't exist
+                if (mkdir(path, 0755) == -1) {
+                    if (errno == EEXIST) {
+                        fprintf(stderr, "warning: try to create directory %s but it already exists\n", path);
+                    }
+                    else {
+                        fprintf(stderr, "error: create directory %s failed\n", path);
+                        free(path);
+                        return -1;
+                    }
+                }
+            }
+
+            if (traverse(conn_fd, sub_info, path, buf, buf_size) == -1) {
+                free(path);
+                return -1;
+            }
+        }
+
+        else {
+            fprintf(stderr, "warning: unknown type %s\n", type);
+            free(type);
+        }
+
+        free(path);
+    }
 
     return 0;
 }
@@ -204,20 +359,24 @@ int request_info(int conn_fd, char *path, json_data **json, char **buf, int *buf
 void communicate(int conn_fd) {
     // TODO: request remote directory
     // maybe add arg option to interactively select remote directory
-    int const INIT_BUF_SIZE = 128;
+    long long const INIT_BUF_SIZE = 128;
 
-    int buf_size = INIT_BUF_SIZE;
+    long long buf_size = INIT_BUF_SIZE;
     char *buf = (char *)malloc(sizeof(char) * (buf_size + 1));
 
-    json_data *json = NULL;
-    if (request_info(conn_fd, config.remote_dir, &json, &buf, &buf_size) == -1) {
+    json_data *info = NULL;
+    if (request_info(conn_fd, config.remote_dir, &info, &buf, &buf_size) == -1) {
+        goto finish;
+    }
+
+    if (traverse(conn_fd, info, config.remote_dir, &buf, &buf_size) == -1) {
         goto finish;
     }
 
 finish:
     free(buf);
-    if (json) {
-        json_kill(json);
+    if (info) {
+        json_kill(info);
     }
 }
 

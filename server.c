@@ -1,4 +1,8 @@
 // TODO: only touch my own file?
+// TODO: prohibit absolute path and ".."
+// TODO: verbose log option
+// TODO: log with perror, maybe use variadic macro
+// TODO: function too long
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,8 +17,6 @@
 #include "json.h"
 #include "arg_parser.h"
 #include "utils.h"
-
-#define ERR_EXIT(s) fprintf(stderr, "fatal: %s: %s\n", s, strerror(errno)); exit(1)
 
 typedef struct {
     int port;
@@ -140,22 +142,22 @@ int init_socket(int port) {
     return sock_fd;
 }
 
-// traverse current working directory and store result in `*json`
+// traverse current working directory and store result in `*info`
 // return 0 when success, -1 when error
-int traverse(char *name, json_data **json) {
+int traverse(char *name, json_data **info) {
     struct stat st;
     if (stat(".", &st) == -1) {
         char *cwd = getcwd(NULL, 0);
-        fprintf(stderr, "error: get status of %s failed (pid %d)\n", cwd, getpid());
+        fprintf(stderr, "error: get %s status failed (pid %d)\n", cwd, getpid());
         free(cwd);
         return -1;
     }
 
-    *json = json_obj_init();
-    json_obj_set(*json, "name", json_str_init(name));
-    json_obj_set(*json, "type", json_str_init("directory"));
-    json_obj_set(*json, "entries", json_arr_init());
-    json_obj_set(*json, "updateTime", json_num_init(st.st_mtime));
+    *info = json_obj_init();
+    json_obj_set(*info, "name", json_str_init(name));
+    json_obj_set(*info, "type", json_str_init("directory"));
+    json_obj_set(*info, "entries", json_arr_init());
+    json_obj_set(*info, "updateTime", json_num_init((double)st.st_mtime));
 
     // read directory
     DIR *dirp = opendir(".");
@@ -172,19 +174,19 @@ int traverse(char *name, json_data **json) {
             continue;
         }
 
-        json_data *sub_json = NULL;
+        json_data *sub_info = NULL;
 
         if (entry->d_type == DT_REG) {
             if (stat(entry->d_name, &st) == -1) {
-                fprintf(stderr, "error: get status of %s failed (pid %d)\n", entry->d_name, getpid());
+                fprintf(stderr, "error: get %s status failed (pid %d)\n", entry->d_name, getpid());
                 closedir(dirp);
                 return -1;
             }
 
-            sub_json = json_obj_init();
-            json_obj_set(sub_json, "name", json_str_init(entry->d_name));
-            json_obj_set(sub_json, "type", json_str_init("file"));
-            json_obj_set(sub_json, "updateTime", json_num_init(st.st_mtime));
+            sub_info = json_obj_init();
+            json_obj_set(sub_info, "name", json_str_init(entry->d_name));
+            json_obj_set(sub_info, "type", json_str_init("file"));
+            json_obj_set(sub_info, "updateTime", json_num_init((double)st.st_mtime));
         }
 
         else if (entry->d_type == DT_DIR) {
@@ -196,9 +198,9 @@ int traverse(char *name, json_data **json) {
                 return -1;
             }
 
-            if (traverse(entry->d_name, &sub_json) == -1) {
-                if (sub_json) {
-                    json_kill(sub_json);
+            if (traverse(entry->d_name, &sub_info) == -1) {
+                if (sub_info) {
+                    json_kill(sub_info);
                 }
                 free(cwd);
                 closedir(dirp);
@@ -207,7 +209,7 @@ int traverse(char *name, json_data **json) {
 
             if (chdir(cwd) == -1) {
                 fprintf(stderr, "error: change working directory to %s failed (pid %d)\n", cwd, getpid());
-                json_kill(sub_json);
+                json_kill(sub_info);
                 free(cwd);
                 closedir(dirp);
                 return -1;
@@ -215,8 +217,8 @@ int traverse(char *name, json_data **json) {
             free(cwd);
         }
 
-        if (sub_json) {
-            json_arr_append(json_obj_get(*json, "entries"), sub_json);
+        if (sub_info) {
+            json_arr_append(json_obj_get(*info, "entries"), sub_info);
         }
     }
 
@@ -226,24 +228,26 @@ int traverse(char *name, json_data **json) {
 }
 
 // return 0 when success, -1 when error
-int response_info(int conn_fd, char **buf, int *buf_size) {
+int respond_info(int conn_fd, char **buf, long long *buf_size) {
     // get requested path
-    int message_len;
-    if (bulk_read(conn_fd, &message_len, sizeof(int)) != sizeof(int)) {
-        fprintf(stderr, "receive request failed (pid %d)\n", getpid());
+    long long message_len;
+    if (bulk_read(conn_fd, &message_len, sizeof(long long)) != sizeof(long long)) {
+        fprintf(stderr, "error: receive info request failed (pid %d)\n", getpid());
         return -1;
     }
-    message_len = ntohl(message_len);
+    message_len = my_ntohll(message_len);
 
     *buf_size = extend_buf(buf, *buf_size, message_len);
     if (bulk_read(conn_fd, *buf, message_len) != message_len) {
-        fprintf(stderr, "receive request failed (pid %d)\n", getpid());
+        fprintf(stderr, "error: receive info request failed (pid %d)\n", getpid());
         return -1;
     }
     (*buf)[message_len] = 0;
-    printf("received request of %s (pid %d)\n", *buf, getpid());
+    printf("received %s info request (pid %d)\n", *buf, getpid());
 
     // traverse
+    // change directory outside of `traverse` because in this way,
+    // we don't need to release `cwd` when there's error in `traverse`
     char *cwd = getcwd(NULL, 0);
     if (chdir(*buf) == -1) {
         fprintf(stderr, "error: change working directory to %s failed (pid %d)\n", *buf, getpid());
@@ -251,10 +255,10 @@ int response_info(int conn_fd, char **buf, int *buf_size) {
         return -1;
     }
 
-    json_data *json = NULL;
-    if (traverse(*buf, &json) == -1) {
-        if (json) {
-            json_kill(json);
+    json_data *info = NULL;
+    if (traverse(".", &info) == -1) {
+        if (info) {
+            json_kill(info);
         }
         free(cwd);
         return -1;
@@ -262,38 +266,125 @@ int response_info(int conn_fd, char **buf, int *buf_size) {
 
     if (chdir(cwd) == -1) {
         fprintf(stderr, "error: change working directory to %s failed (pid %d)\n", cwd, getpid());
-        json_kill(json);
+        json_kill(info);
         free(cwd);
         return -1;
     }
     free(cwd);
 
     // send to client
-    char *json_str = json_to_str(json, false);
-    json_kill(json);
+    char *info_str = json_to_str(info, false);
+    json_kill(info);
 
-    *buf_size = extend_buf(buf, *buf_size, sizeof(int));
-    ((int *)*buf)[0] = htonl(strlen(json_str));
-    if (bulk_write(conn_fd, *buf, sizeof(int)) != sizeof(int)) {
-        fprintf(stderr, "response info failed (pid %d)\n", getpid());
-        free(json_str);
+    char *path = (char *)malloc(sizeof(char) * (strlen(*buf) + 1));
+    strcpy(path, *buf);
+
+    *buf_size = extend_buf(buf, *buf_size, sizeof(long long));
+    ((long long *)*buf)[0] = my_htonll(strlen(info_str));
+    if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
+        fprintf(stderr, "error: respond %s info failed (pid %d)\n", path, getpid());
+        free(info_str);
+        free(path);
         return -1;
     }
-    if (bulk_write(conn_fd, json_str, strlen(json_str)) != strlen(json_str)) {
-        fprintf(stderr, "response info failed (pid %d)\n", getpid());
-        free(json_str);
+    if (bulk_write(conn_fd, info_str, strlen(info_str)) != strlen(info_str)) {
+        fprintf(stderr, "error: respond %s info failed (pid %d)\n", path, getpid());
+        free(info_str);
+        free(path);
         return -1;
     }
-    printf("responsed info (%ld bytes) (pid %d)\n", strlen(json_str), getpid());
-    free(json_str);
+    printf("responded %s info (%lu bytes) (pid %d)\n", path, strlen(info_str), getpid());
+
+    free(info_str);
+    free(path);
+
+    return 0;
+}
+
+// return 0 when success, -1 when error
+int respond_content(int conn_fd, char **buf, long long *buf_size) {
+    int const BLOCK_SIZE = 4096;
+
+    // get requested path
+    long long message_len;
+    if (bulk_read(conn_fd, &message_len, sizeof(long long)) != sizeof(long long)) {
+        fprintf(stderr, "error: receive content request failed (pid %d)\n", getpid());
+        return -1;
+    }
+    message_len = my_ntohll(message_len);
+
+    *buf_size = extend_buf(buf, *buf_size, message_len);
+    if (bulk_read(conn_fd, *buf, message_len) != message_len) {
+        fprintf(stderr, "error: receive content request failed (pid %d)\n", getpid());
+        return -1;
+    }
+    (*buf)[message_len] = 0;
+    printf("received %s content request (pid %d)\n", *buf, getpid());
+
+    // open file and get file size
+    int file_fd = open(*buf, O_RDONLY);
+    if (file_fd == -1) {
+        fprintf(stderr, "error: open %s failed (pid %d)\n", *buf, getpid());
+        return -1;
+    }
+
+    struct stat st;
+    if (fstat(file_fd, &st) == -1) {
+        fprintf(stderr, "error: get %s status failed (pid %d)\n", *buf, getpid());
+        close(file_fd);
+        return -1;
+    }
+
+    // send file length
+    char *path = (char *)malloc(sizeof(char) * (strlen(*buf) + 1));
+    strcpy(path, *buf);
+
+    *buf_size = extend_buf(buf, *buf_size, sizeof(long long));
+    ((long long *)*buf)[0] = my_htonll(st.st_size);
+    if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
+        fprintf(stderr, "error: respond %s content failed (pid %d)\n", path, getpid());
+        free(path);
+        close(file_fd);
+        return -1;
+    }
+
+    // read file and send to client
+    *buf_size = extend_buf(buf, *buf_size, BLOCK_SIZE);
+    long long send_len = 0;
+    while (send_len < st.st_size) {
+        // read file
+        int len = bulk_read(file_fd, *buf, BLOCK_SIZE);
+        if (len == 0) {
+            fprintf(stderr, "warning: unexpected EOF when reading %s (pid %d)\n", path, getpid());
+        }
+        if (len == 0 || len == -1) {
+            fprintf(stderr, "error: read %s failed (pid %d)\n", path, getpid());
+            free(path);
+            close(file_fd);
+            return -1;
+        }
+
+        // send to client
+        if (bulk_write(conn_fd, *buf, len) != len) {
+            fprintf(stderr, "error: respond %s content failed (pid %d)\n", path, getpid());
+            free(path);
+            close(file_fd);
+            return -1;
+        }
+        send_len += len;
+    }
+    printf("responded %s content (%lld bytes) (pid %d)\n", path, send_len, getpid());
+
+    free(path);
+    close(file_fd);
 
     return 0;
 }
 
 void communicate(int conn_fd) {
-    int const INIT_BUF_SIZE = 128;
+    long long const INIT_BUF_SIZE = 128;
 
-    int buf_size = INIT_BUF_SIZE;
+    long long buf_size = INIT_BUF_SIZE;
     char *buf = (char *)malloc(sizeof(char) * (buf_size + 1));
 
     int command;
@@ -307,7 +398,15 @@ void communicate(int conn_fd) {
         case 0:
         {
             printf("received command: request info (pid %d)\n", getpid());
-            if (response_info(conn_fd, &buf, &buf_size) == -1) {
+            if (respond_info(conn_fd, &buf, &buf_size) == -1) {
+                goto finish;
+            }
+            break;
+        }
+        case 1:
+        {
+            printf("received command: request content (pid %d)\n", getpid());
+            if (respond_content(conn_fd, &buf, &buf_size) == -1) {
                 goto finish;
             }
             break;
