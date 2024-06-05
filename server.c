@@ -1,7 +1,5 @@
 // TODO: only touch my own file?
 // TODO: prohibit absolute path and ".."
-// TODO: verbose log option
-// TODO: log with perror, maybe use variadic macro
 // TODO: function too long
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,14 +35,14 @@ void load_config_default() {
 void load_config_file(char *path) {
     int fd = open(path, O_RDONLY);
     if (fd == -1) {
-        fprintf(stderr, "error: open config file failed\n");
+        ERR_LOG("open config file failed");
         return;
     }
 
     // get file size
     struct stat st;
     if (fstat(fd, &st) == -1) {
-        fprintf(stderr, "error: get config file status failed\n");
+        ERR_LOG("get config file status failed");
         close(fd);
         return;
     }
@@ -55,7 +53,7 @@ void load_config_file(char *path) {
     close(fd);
     if (len != st.st_size) {
         if (len == -1) {
-            fprintf(stderr, "error: read config file failed\n");
+            ERR_LOG("read config file failed");
         }
         free(buf);
         return;
@@ -148,7 +146,7 @@ int traverse(char *name, json_data **info) {
     struct stat st;
     if (stat(".", &st) == -1) {
         char *cwd = getcwd(NULL, 0);
-        fprintf(stderr, "error: get %s status failed (pid %d)\n", cwd, getpid());
+        ERR_PID_LOG("get %s status failed", cwd);
         free(cwd);
         return -1;
     }
@@ -163,7 +161,7 @@ int traverse(char *name, json_data **info) {
     DIR *dirp = opendir(".");
     if (!dirp) {
         char *cwd = getcwd(NULL, 0);
-        fprintf(stderr, "error: open directory %s failed (pid %d)\n", cwd, getpid());
+        ERR_PID_LOG("open directory %s failed", cwd);
         free(cwd);
         return -1;
     }
@@ -178,7 +176,7 @@ int traverse(char *name, json_data **info) {
 
         if (entry->d_type == DT_REG) {
             if (stat(entry->d_name, &st) == -1) {
-                fprintf(stderr, "error: get %s status failed (pid %d)\n", entry->d_name, getpid());
+                ERR_PID_LOG("get %s status failed", entry->d_name);
                 closedir(dirp);
                 return -1;
             }
@@ -192,7 +190,7 @@ int traverse(char *name, json_data **info) {
         else if (entry->d_type == DT_DIR) {
             char *cwd = getcwd(NULL, 0);
             if (chdir(entry->d_name) == -1) {
-                fprintf(stderr, "error: change working directory to %s failed (pid %d)\n", entry->d_name, getpid());
+                ERR_PID_LOG("change working directory to %s failed", entry->d_name);
                 free(cwd);
                 closedir(dirp);
                 return -1;
@@ -208,7 +206,7 @@ int traverse(char *name, json_data **info) {
             }
 
             if (chdir(cwd) == -1) {
-                fprintf(stderr, "error: change working directory to %s failed (pid %d)\n", cwd, getpid());
+                ERR_PID_LOG("change working directory to %s failed", cwd);
                 json_kill(sub_info);
                 free(cwd);
                 closedir(dirp);
@@ -232,14 +230,14 @@ int respond_info(int conn_fd, char **buf, long long *buf_size) {
     // get requested path
     long long message_len;
     if (bulk_read(conn_fd, &message_len, sizeof(long long)) != sizeof(long long)) {
-        fprintf(stderr, "error: receive info request failed (pid %d)\n", getpid());
+        ERR_PID_LOG("receive info request failed");
         return -1;
     }
     message_len = my_ntohll(message_len);
 
     *buf_size = extend_buf(buf, *buf_size, message_len);
     if (bulk_read(conn_fd, *buf, message_len) != message_len) {
-        fprintf(stderr, "error: receive info request failed (pid %d)\n", getpid());
+        ERR_PID_LOG("receive info request failed");
         return -1;
     }
     (*buf)[message_len] = 0;
@@ -250,7 +248,7 @@ int respond_info(int conn_fd, char **buf, long long *buf_size) {
     // we don't need to release `cwd` when there's error in `traverse`
     char *cwd = getcwd(NULL, 0);
     if (chdir(*buf) == -1) {
-        fprintf(stderr, "error: change working directory to %s failed (pid %d)\n", *buf, getpid());
+        ERR_PID_LOG("change working directory to %s failed", *buf);
         free(cwd);
         return -1;
     }
@@ -265,7 +263,7 @@ int respond_info(int conn_fd, char **buf, long long *buf_size) {
     }
 
     if (chdir(cwd) == -1) {
-        fprintf(stderr, "error: change working directory to %s failed (pid %d)\n", cwd, getpid());
+        ERR_PID_LOG("change working directory to %s failed", cwd);
         json_kill(info);
         free(cwd);
         return -1;
@@ -282,13 +280,13 @@ int respond_info(int conn_fd, char **buf, long long *buf_size) {
     *buf_size = extend_buf(buf, *buf_size, sizeof(long long));
     ((long long *)*buf)[0] = my_htonll(strlen(info_str));
     if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
-        fprintf(stderr, "error: respond %s info failed (pid %d)\n", path, getpid());
+        ERR_PID_LOG("respond %s info failed", path);
         free(info_str);
         free(path);
         return -1;
     }
     if (bulk_write(conn_fd, info_str, strlen(info_str)) != strlen(info_str)) {
-        fprintf(stderr, "error: respond %s info failed (pid %d)\n", path, getpid());
+        ERR_PID_LOG("respond %s info failed", path);
         free(info_str);
         free(path);
         return -1;
@@ -308,14 +306,14 @@ int respond_content(int conn_fd, char **buf, long long *buf_size) {
     // get requested path
     long long message_len;
     if (bulk_read(conn_fd, &message_len, sizeof(long long)) != sizeof(long long)) {
-        fprintf(stderr, "error: receive content request failed (pid %d)\n", getpid());
+        ERR_PID_LOG("receive content request failed");
         return -1;
     }
     message_len = my_ntohll(message_len);
 
     *buf_size = extend_buf(buf, *buf_size, message_len);
     if (bulk_read(conn_fd, *buf, message_len) != message_len) {
-        fprintf(stderr, "error: receive content request failed (pid %d)\n", getpid());
+        ERR_PID_LOG("receive content request failed");
         return -1;
     }
     (*buf)[message_len] = 0;
@@ -324,13 +322,13 @@ int respond_content(int conn_fd, char **buf, long long *buf_size) {
     // open file and get file size
     int file_fd = open(*buf, O_RDONLY);
     if (file_fd == -1) {
-        fprintf(stderr, "error: open %s failed (pid %d)\n", *buf, getpid());
+        ERR_PID_LOG("open %s failed", *buf);
         return -1;
     }
 
     struct stat st;
     if (fstat(file_fd, &st) == -1) {
-        fprintf(stderr, "error: get %s status failed (pid %d)\n", *buf, getpid());
+        ERR_PID_LOG("get %s status failed", *buf);
         close(file_fd);
         return -1;
     }
@@ -342,7 +340,7 @@ int respond_content(int conn_fd, char **buf, long long *buf_size) {
     *buf_size = extend_buf(buf, *buf_size, sizeof(long long));
     ((long long *)*buf)[0] = my_htonll(st.st_size);
     if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
-        fprintf(stderr, "error: respond %s content failed (pid %d)\n", path, getpid());
+        ERR_PID_LOG("respond %s content failed", path);
         free(path);
         close(file_fd);
         return -1;
@@ -358,7 +356,7 @@ int respond_content(int conn_fd, char **buf, long long *buf_size) {
             fprintf(stderr, "warning: unexpected EOF when reading %s (pid %d)\n", path, getpid());
         }
         if (len == 0 || len == -1) {
-            fprintf(stderr, "error: read %s failed (pid %d)\n", path, getpid());
+            ERR_PID_LOG("read %s failed", path);
             free(path);
             close(file_fd);
             return -1;
@@ -366,7 +364,7 @@ int respond_content(int conn_fd, char **buf, long long *buf_size) {
 
         // send to client
         if (bulk_write(conn_fd, *buf, len) != len) {
-            fprintf(stderr, "error: respond %s content failed (pid %d)\n", path, getpid());
+            ERR_PID_LOG("respond %s content failed", path);
             free(path);
             close(file_fd);
             return -1;
@@ -440,14 +438,14 @@ int main(int argc, char **argv) {
         socklen_t addr_size = sizeof(addr);
         int conn_fd = accept(sock_fd, (struct sockaddr *)&addr, &addr_size);
         if (conn_fd == -1) {
-            fprintf(stderr, "error: accept: %s\n", strerror(errno));
+            ERR_LOG("accept");
             continue;
         }
 
         // use multiprocess because we need to change working directory
         int pid = fork();
         if (pid == -1) {
-            fprintf(stderr, "error: fork: %s\n", strerror(errno));
+            ERR_LOG("fork");
             close(conn_fd);
             continue;
         }

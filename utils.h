@@ -3,8 +3,14 @@
 
 #include <sys/types.h>
 #include <stdint.h>
+#include <sys/errno.h>
+#include <unistd.h>
 
+// use these when errno is set
 #define ERR_EXIT(s) fprintf(stderr, "fatal: %s: %s\n", s, strerror(errno)); exit(1)
+#define ERR_LOG(...) fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s\n", strerror(errno))
+#define ERR_PID_LOG(...) fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s (pid %d)\n", strerror(errno), getpid())
+
 #define MIN(a, b) (a) < (b) ? (a) : (b)
 
 // extend `*buf` to at least `new_buf_size` long
