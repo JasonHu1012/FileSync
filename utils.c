@@ -57,7 +57,8 @@ ssize_t bulk_write(int fd, void const *buf, size_t len) {
 }
 
 uint64_t my_ntohll(uint64_t n) {
-    if (ntohl(1) == 1) {
+    // don't need to consider (un)signed problem
+    if (ntohl(2) == 2) {
         return n;
     }
 
@@ -74,18 +75,6 @@ uint64_t my_ntohll(uint64_t n) {
 }
 
 uint64_t my_htonll(uint64_t n) {
-    if (htonl(1) == 1) {
-        return n;
-    }
-
-    uint8_t na[8];
-    memcpy(na, &n, sizeof(uint64_t));
-    for (int i = 0; i < 4; i++) {
-        na[i] ^= na[7 - i];
-        na[7 - i] ^= na[i];
-        na[i] ^= na[7 - i];
-    }
-    memcpy(&n, na, sizeof(uint64_t));
-
-    return n;
+    // hton and ntoh are actually the same
+    return my_ntohll(n);
 }
