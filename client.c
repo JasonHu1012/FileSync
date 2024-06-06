@@ -209,6 +209,7 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, long lon
     return 0;
 }
 
+// request "{remote_dir}/{path}" content
 // received content will be written to file
 // return 0 when success, -1 when error
 int request_content(int conn_fd, char *path, char **buf, long long *buf_size) {
@@ -222,12 +223,14 @@ int request_content(int conn_fd, char *path, char **buf, long long *buf_size) {
         return -1;
     }
     *buf_size = extend_buf(buf, *buf_size, sizeof(long long));
-    ((long long *)*buf)[0] = my_htonll(strlen(path));
+    ((long long *)*buf)[0] = my_htonll(strlen(config.remote_dir) + strlen(path) + 1);
     if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
         ERR_LOG("request %s content failed", path);
         return -1;
     }
-    if (bulk_write(conn_fd, path, strlen(path)) != strlen(path)) {
+    *buf_size = extend_buf(buf, *buf_size, strlen(config.remote_dir) + strlen(path) + 1);
+    sprintf(*buf, "%s/%s", config.remote_dir, path);
+    if (bulk_write(conn_fd, *buf, strlen(*buf)) != strlen(*buf)) {
         ERR_LOG("request %s content failed", path);
         return -1;
     }
@@ -275,7 +278,6 @@ int request_content(int conn_fd, char *path, char **buf, long long *buf_size) {
     return 0;
 }
 
-// the working directory is the directory specified by `info`
 // return 0 when success, -1 when error
 int traverse(int conn_fd, json_data *info, char *prefix, char **buf, long long *buf_size) {
     json_data *entries = json_obj_get(info, "entries");
@@ -371,7 +373,7 @@ void communicate(int conn_fd) {
         goto finish;
     }
 
-    if (traverse(conn_fd, info, config.remote_dir, &buf, &buf_size) == -1) {
+    if (traverse(conn_fd, info, ".", &buf, &buf_size) == -1) {
         goto finish;
     }
 
