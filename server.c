@@ -1,5 +1,4 @@
 // TODO: only touch my own file?
-// TODO: prohibit absolute path and ".."
 // TODO: function too long
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +11,7 @@
 #include <sys/errno.h>
 #include <arpa/inet.h>
 #include <dirent.h>
+#include <stdbool.h>
 #include "json.h"
 #include "arg_parser.h"
 #include "utils.h"
@@ -225,6 +225,17 @@ int traverse(char *name, json_data **info) {
     return 0;
 }
 
+bool is_valid_request_path(char *path) {
+    // ".." is prohibited
+    for (int i = 0; path[i]; i++) {
+        if (path[i] == '.' && path[i + 1] == '.') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 // return 0 when success, -1 when error
 int respond_info(int conn_fd, char **buf, long long *buf_size) {
     // get requested path
@@ -242,6 +253,16 @@ int respond_info(int conn_fd, char **buf, long long *buf_size) {
     }
     (*buf)[message_len] = 0;
     printf("received %s info request (pid %d)\n", *buf, getpid());
+
+    if (!is_valid_request_path(*buf)) {
+        fprintf(stderr, "error: invalid request path %s (pid %d)\n", *buf, getpid());
+        return -1;
+    }
+
+    // add "./" in front of the path
+    *buf_size = extend_buf(buf, *buf_size, strlen(*buf) + 2);
+    memmove(*buf + 2, *buf, sizeof(char) * (strlen(*buf) + 1));
+    memcpy(*buf, "./", sizeof(char) * 2);
 
     // traverse
     // change directory outside of `traverse` because in this way,
@@ -318,6 +339,16 @@ int respond_content(int conn_fd, char **buf, long long *buf_size) {
     }
     (*buf)[message_len] = 0;
     printf("received %s content request (pid %d)\n", *buf, getpid());
+
+    if (!is_valid_request_path(*buf)) {
+        fprintf(stderr, "error: invalid request path %s (pid %d)\n", *buf, getpid());
+        return -1;
+    }
+
+    // add "./" in front of the path
+    *buf_size = extend_buf(buf, *buf_size, strlen(*buf) + 2);
+    memmove(*buf + 2, *buf, sizeof(char) * (strlen(*buf) + 1));
+    memcpy(*buf, "./", sizeof(char) * 2);
 
     // open file and get file size
     int file_fd = open(*buf, O_RDONLY);

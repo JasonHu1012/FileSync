@@ -1,9 +1,8 @@
 // TODO: program terminates when updating file
-// TODO: prohibit absolute path and ".." in remote dir?
-// consider `traverse`, prefix initial values is remote dir and it should be relative path
 // TODO: function too long
 // TODO: when update, set the same update time
 // TODO: sync file/directory permission in info
+// TODO: config order
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -133,6 +132,21 @@ void load_config(int argc, char **argv) {
     load_config_default();
     load_config_file((char *)FILE_PATH);
     load_config_arg(argc, argv);
+}
+
+void validate_config() {
+    if (config.port < 0 || config.port > 65535) {
+        fprintf(stderr, "fatal: invalid port %d\n", config.port);
+        exit(1);
+    }
+
+    // prohibit ".." in `remote_dir`
+    for (int i = 0; config.remote_dir[i]; i++) {
+        if (config.remote_dir[i] == '.' && config.remote_dir[i + 1] == '.') {
+            fprintf(stderr, "fatal: .. is prohibited in remote directory path\n");
+            exit(1);
+        }
+    }
 }
 
 void kill_config() {
@@ -386,6 +400,7 @@ finish:
 
 int main(int argc, char **argv) {
     load_config(argc, argv);
+    validate_config();
     printf("config:\n  host = %s\n  port = %d\n  remote directory = %s\n  local directory = %s\n",
         config.host, config.port, config.remote_dir, config.local_dir);
 
