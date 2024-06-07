@@ -1,7 +1,5 @@
 // TODO: program terminates when updating file
 // TODO: function too long
-// TODO: when update, set the same update time
-// TODO: sync file/directory permission in info
 // TODO: config order
 #include <stdio.h>
 #include <stdlib.h>
@@ -226,7 +224,7 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, long lon
 // request "{remote_dir}/{path}" content
 // received content will be written to file
 // return 0 when success, -1 when error
-int request_content(int conn_fd, char *path, char **buf, long long *buf_size) {
+int request_content(int conn_fd, char *path, int permission, char **buf, long long *buf_size) {
     int const BLOCK_SIZE = 4096;
 
     // send [1][path length][path]
@@ -248,7 +246,7 @@ int request_content(int conn_fd, char *path, char **buf, long long *buf_size) {
         ERR_LOG("request %s content failed", path);
         return -1;
     }
-    printf("requested %s content\n", path);
+    printf("requested %s content\n", *buf);
 
     // get requested content length
     long long message_len;
@@ -259,7 +257,7 @@ int request_content(int conn_fd, char *path, char **buf, long long *buf_size) {
     message_len = my_ntohll(message_len);
 
     // open file
-    int file_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    int file_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, permission);
     if (file_fd == -1) {
         ERR_LOG("open %s failed", path);
         return -1;
@@ -300,8 +298,15 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, long long *
         json_data *sub_info = json_arr_get(entries, i);
 
         char *name = json_str_get(json_obj_get(sub_info, "name"));
-        char *path = (char *)malloc(sizeof(char) * (strlen(prefix) + strlen(name) + 2));
-        sprintf(path, "%s/%s", prefix, name);
+        char *path;
+        if (prefix) {
+            path = (char *)malloc(sizeof(char) * (strlen(prefix) + strlen(name) + 2));
+            sprintf(path, "%s/%s", prefix, name);
+        }
+        else {
+            path = (char *)malloc(sizeof(char) * (strlen(name) + 1));
+            strcpy(path, name);
+        }
         free(name);
 
         char *type = json_str_get(json_obj_get(sub_info, "type"));
@@ -312,7 +317,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, long long *
             if (stat(path, &st) == -1) {
                 if (errno == ENOENT) {
                     // the file doesn't exist, request content
-                    if (request_content(conn_fd, path, buf, buf_size) == -1) {
+                    if (request_content(conn_fd, path, (int)json_num_get(json_obj_get(sub_info, "permission")), buf, buf_size) == -1) {
                         free(path);
                         return -1;
                     }
@@ -329,7 +334,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, long long *
                 long long update_time = (long long)json_num_get(json_obj_get(sub_info, "updateTime"));
                 if (st.st_mtime < update_time) {
                     // local file is out of date, request content
-                    if (request_content(conn_fd, path, buf, buf_size) == -1) {
+                    if (request_content(conn_fd, path, (int)json_num_get(json_obj_get(sub_info, "permission")), buf, buf_size) == -1) {
                         free(path);
                         return -1;
                     }
@@ -387,7 +392,7 @@ void communicate(int conn_fd) {
         goto finish;
     }
 
-    if (traverse(conn_fd, info, ".", &buf, &buf_size) == -1) {
+    if (traverse(conn_fd, info, NULL, &buf, &buf_size) == -1) {
         goto finish;
     }
 

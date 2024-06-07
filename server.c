@@ -143,6 +143,7 @@ int init_socket(int port) {
 // traverse current working directory and store result in `*info`
 // return 0 when success, -1 when error
 int traverse(char *name, json_data **info) {
+    // init info of current directory
     struct stat st;
     if (stat(".", &st) == -1) {
         char *cwd = getcwd(NULL, 0);
@@ -156,6 +157,7 @@ int traverse(char *name, json_data **info) {
     json_obj_set(*info, "type", json_str_init("directory"));
     json_obj_set(*info, "entries", json_arr_init());
     json_obj_set(*info, "updateTime", json_num_init((double)st.st_mtime));
+    json_obj_set(*info, "permission", json_num_init((double)(st.st_mode & 0777)));
 
     // read directory
     DIR *dirp = opendir(".");
@@ -185,6 +187,7 @@ int traverse(char *name, json_data **info) {
             json_obj_set(sub_info, "name", json_str_init(entry->d_name));
             json_obj_set(sub_info, "type", json_str_init("file"));
             json_obj_set(sub_info, "updateTime", json_num_init((double)st.st_mtime));
+            json_obj_set(sub_info, "permission", json_num_init((double)(st.st_mode & 0777)));
         }
 
         else if (entry->d_type == DT_DIR) {
