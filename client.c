@@ -224,7 +224,7 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, long lon
 // request "{remote_dir}/{path}" content
 // received content will be written to file
 // return 0 when success, -1 when error
-int request_content(int conn_fd, char *path, int permission, char **buf, long long *buf_size) {
+int request_content(int conn_fd, char *path, mode_t permission, char **buf, long long *buf_size) {
     int const BLOCK_SIZE = 4096;
 
     // send [1][path length][path]
@@ -317,7 +317,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, long long *
             if (stat(path, &st) == -1) {
                 if (errno == ENOENT) {
                     // the file doesn't exist, request content
-                    if (request_content(conn_fd, path, (int)json_num_get(json_obj_get(sub_info, "permission")), buf, buf_size) == -1) {
+                    if (request_content(conn_fd, path, (mode_t)json_num_get(json_obj_get(sub_info, "permission")), buf, buf_size) == -1) {
                         free(path);
                         return -1;
                     }
@@ -334,7 +334,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, long long *
                 long long update_time = (long long)json_num_get(json_obj_get(sub_info, "updateTime"));
                 if (st.st_mtime < update_time) {
                     // local file is out of date, request content
-                    if (request_content(conn_fd, path, (int)json_num_get(json_obj_get(sub_info, "permission")), buf, buf_size) == -1) {
+                    if (request_content(conn_fd, path, (mode_t)json_num_get(json_obj_get(sub_info, "permission")), buf, buf_size) == -1) {
                         free(path);
                         return -1;
                     }
