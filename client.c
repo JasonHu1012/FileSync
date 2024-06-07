@@ -259,8 +259,23 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, long
     // open file
     int file_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, permission);
     if (file_fd == -1) {
-        ERR_LOG("open %s failed", path);
-        return -1;
+        if (errno == EACCES) {
+            // maybe we don't have the write permission, delete and create
+            if (remove(path) == -1) {
+                ERR_LOG("remove %s failed", path);
+                return -1;
+            }
+
+            file_fd = open(path, O_WRONLY | O_CREAT | O_EXCL, permission);
+            if (file_fd == -1) {
+                ERR_LOG("open %s failed", path);
+                return -1;
+            }
+        }
+        else {
+            ERR_LOG("open %s failed", path);
+            return -1;
+        }
     }
 
     // get content and write to file
