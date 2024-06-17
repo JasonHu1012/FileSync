@@ -1,6 +1,7 @@
+// TODO: tolerate error
 // TODO: program terminates when updating file
 // TODO: function too long
-// TODO: config order
+// TODO: specify config path with arg
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,19 +26,28 @@ typedef struct {
 
 config_t config;
 
-void load_config_default() {
-    int const PORT = 52124;
-    char const *HOST = "127.0.0.1";
-    char const *REMOTE_DIR = ".";
-    char const *LOCAL_DIR = ".";
+void load_config_arg(int argc, char **argv) {
+    arg_parser *arg = arg_init();
+    arg_register(arg, "-p", "port", ARG_INT);
+    arg_register(arg, "--host", "host ip", ARG_STRING);
+    arg_register(arg, "--rdir", "remote directory", ARG_STRING);
+    arg_register(arg, "--ldir", "local directory", ARG_STRING);
+    arg_parse(arg, argc, argv);
 
-    config.port = PORT;
-    config.host = (char *)malloc(sizeof(char) * (strlen(HOST) + 1));
-    strcpy(config.host, HOST);
-    config.remote_dir = (char *)malloc(sizeof(char) * (strlen(REMOTE_DIR) + 1));
-    strcpy(config.remote_dir, REMOTE_DIR);
-    config.local_dir = (char *)malloc(sizeof(char) * (strlen(LOCAL_DIR) + 1));
-    strcpy(config.local_dir, LOCAL_DIR);
+    if (config.port == -1) {
+        arg_get(arg, "-p", &config.port);
+    }
+    if (config.host == NULL) {
+        arg_get(arg, "--host", &config.host);
+    }
+    if (config.remote_dir == NULL) {
+        arg_get(arg, "--rdir", &config.remote_dir);
+    }
+    if (config.local_dir == NULL) {
+        arg_get(arg, "--ldir", &config.local_dir);
+    }
+
+    arg_kill(arg);
 }
 
 void load_config_file(char *path) {
@@ -75,61 +85,62 @@ void load_config_file(char *path) {
     // get config
     json_data *sub_json;
     sub_json = json_obj_get(json, "port");
-    if (sub_json) {
+    if (config.port == -1 && sub_json) {
         config.port = (int)json_num_get(sub_json);
     }
     sub_json = json_obj_get(json, "host");
-    if (sub_json) {
-        free(config.host);
+    if (config.host == NULL && sub_json) {
         config.host = json_str_get(sub_json);
     }
     sub_json = json_obj_get(json, "remoteDir");
-    if (sub_json) {
-        free(config.remote_dir);
+    if (config.remote_dir == NULL && sub_json) {
         config.remote_dir = json_str_get(sub_json);
     }
     sub_json = json_obj_get(json, "localDir");
-    if (sub_json) {
-        free(config.local_dir);
+    if (config.local_dir == NULL && sub_json) {
         config.local_dir = json_str_get(sub_json);
     }
 
     json_kill(json);
 }
 
-void load_config_arg(int argc, char **argv) {
-    arg_parser *arg = arg_init();
-    arg_register(arg, "-p", "port", ARG_INT);
-    arg_register(arg, "--host", "host ip", ARG_STRING);
-    arg_register(arg, "--rdir", "remote directory", ARG_STRING);
-    arg_register(arg, "--ldir", "local directory", ARG_STRING);
-    arg_parse(arg, argc, argv);
+void load_config_default() {
+    int const PORT = 52124;
+    char const *HOST = "127.0.0.1";
+    char const *REMOTE_DIR = ".";
+    char const *LOCAL_DIR = ".";
 
-    arg_get(arg, "-p", &config.port);
-    if (arg_is_parsed(arg, "--host")) {
-        free(config.host);
-        arg_get(arg, "--host", &config.host);
+    if (config.port == -1) {
+        config.port = PORT;
     }
-    if (arg_is_parsed(arg, "--rdir")) {
-        free(config.remote_dir);
-        arg_get(arg, "--rdir", &config.remote_dir);
+    if (config.host == NULL) {
+        config.host = (char *)malloc(sizeof(char) * (strlen(HOST) + 1));
+        strcpy(config.host, HOST);
     }
-    if (arg_is_parsed(arg, "--ldir")) {
-        free(config.local_dir);
-        arg_get(arg, "--ldir", &config.local_dir);
+    if (config.remote_dir == NULL) {
+        config.remote_dir = (char *)malloc(sizeof(char) * (strlen(REMOTE_DIR) + 1));
+        strcpy(config.remote_dir, REMOTE_DIR);
     }
-
-    arg_kill(arg);
+    if (config.local_dir == NULL) {
+        config.local_dir = (char *)malloc(sizeof(char) * (strlen(LOCAL_DIR) + 1));
+        strcpy(config.local_dir, LOCAL_DIR);
+    }
 }
 
 void load_config(int argc, char **argv) {
     char const *FILE_PATH = "./client_config.json";
 
+    // initialize config
+    config.port = -1;
+    config.host = NULL;
+    config.remote_dir = NULL;
+    config.local_dir = NULL;
+
     // config priority:
     // arg > file > default
-    load_config_default();
-    load_config_file((char *)FILE_PATH);
     load_config_arg(argc, argv);
+    load_config_file((char *)FILE_PATH);
+    load_config_default();
 }
 
 void validate_config() {
