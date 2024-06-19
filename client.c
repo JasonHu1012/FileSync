@@ -1,7 +1,6 @@
 // TODO: tolerate error
 // TODO: program terminates when updating file
 // TODO: function too long
-// TODO: specify config path with arg
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +21,7 @@ typedef struct {
     char *host;
     char *remote_dir;
     char *local_dir;
+    char *config_path;
 } config_t;
 
 config_t config;
@@ -32,6 +32,7 @@ void load_config_arg(int argc, char **argv) {
     arg_register(arg, "--host", "host ip", ARG_STRING);
     arg_register(arg, "--rdir", "remote directory", ARG_STRING);
     arg_register(arg, "--ldir", "local directory", ARG_STRING);
+    arg_register(arg, "--config", "config file path", ARG_STRING);
     arg_parse(arg, argc, argv);
 
     if (config.port == -1) {
@@ -45,6 +46,9 @@ void load_config_arg(int argc, char **argv) {
     }
     if (config.local_dir == NULL) {
         arg_get(arg, "--ldir", &config.local_dir);
+    }
+    if (config.config_path == NULL) {
+        arg_get(arg, "--config", &config.config_path);
     }
 
     arg_kill(arg);
@@ -135,11 +139,12 @@ void load_config(int argc, char **argv) {
     config.host = NULL;
     config.remote_dir = NULL;
     config.local_dir = NULL;
+    config.config_path = NULL;
 
     // config priority:
     // arg > file > default
     load_config_arg(argc, argv);
-    load_config_file((char *)FILE_PATH);
+    load_config_file(config.config_path == NULL ? (char *)FILE_PATH : config.config_path);
     load_config_default();
 }
 
@@ -162,6 +167,9 @@ void kill_config() {
     free(config.host);
     free(config.remote_dir);
     free(config.local_dir);
+    if (config.config_path) {
+        free(config.config_path);
+    }
 }
 
 int init_socket(char *host, int port) {

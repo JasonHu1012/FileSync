@@ -1,6 +1,5 @@
 // TODO: tolerate error
 // TODO: function too long
-// TODO: specify config path with arg
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +19,7 @@
 typedef struct {
     int port;
     char *work_dir;
+    char *config_path;
 } config_t;
 
 config_t config;
@@ -28,6 +28,7 @@ void load_config_arg(int argc, char **argv) {
     arg_parser *arg = arg_init();
     arg_register(arg, "-p", "port", ARG_INT);
     arg_register(arg, "-d", "working directory", ARG_STRING);
+    arg_register(arg, "--config", "config file path", ARG_STRING);
     arg_parse(arg, argc, argv);
 
     if (config.port == -1) {
@@ -36,6 +37,9 @@ void load_config_arg(int argc, char **argv) {
     if (config.work_dir == NULL) {
         arg_get(arg, "-d", &config.work_dir);
     }
+    if (config.config_path == NULL) {
+        arg_get(arg, "--config", &config.config_path);
+    }
 
     arg_kill(arg);
 }
@@ -43,14 +47,14 @@ void load_config_arg(int argc, char **argv) {
 void load_config_file(char *path) {
     int fd = open(path, O_RDONLY);
     if (fd == -1) {
-        ERR_LOG("open config file failed");
+        ERR_LOG("open config file %s failed", path);
         return;
     }
 
     // get file size
     struct stat st;
     if (fstat(fd, &st) == -1) {
-        ERR_LOG("get config file status failed");
+        ERR_LOG("get config file %s status failed", path);
         close(fd);
         return;
     }
@@ -61,7 +65,7 @@ void load_config_file(char *path) {
     close(fd);
     if (len != st.st_size) {
         if (len == -1) {
-            ERR_LOG("read config file failed");
+            ERR_LOG("read config file %s failed", path);
         }
         free(buf);
         return;
@@ -105,16 +109,27 @@ void load_config(int argc, char **argv) {
     // initialize config
     config.port = -1;
     config.work_dir = NULL;
+    config.config_path = NULL;
 
     // config priority:
     // arg > file > default
     load_config_arg(argc, argv);
-    load_config_file((char *)FILE_PATH);
+    load_config_file(config.config_path == NULL ? (char *)FILE_PATH : config.config_path);
     load_config_default();
+}
+
+void validate_config() {
+    if (config.port < 0 || config.port > 65535) {
+        fprintf(stderr, "fatal: invalid port %d\n", config.port);
+        exit(1);
+    }
 }
 
 void kill_config() {
     free(config.work_dir);
+    if (config.config_path) {
+        free(config.config_path);
+    }
 }
 
 int init_socket(int port) {
@@ -463,6 +478,7 @@ finish:
 
 int main(int argc, char **argv) {
     load_config(argc, argv);
+    validate_config();
     printf("config:\n  port = %d\n  working directory = %s\n", config.port, config.work_dir);
 
     if (chdir(config.work_dir) == -1) {
