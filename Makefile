@@ -11,10 +11,10 @@ CFLAGS = -Wall -I$(INCLUDE_LOCAL) -I$(INCLUDE_CLIB)
 
 all: server client
 
-server: $(SRC)server.c $(OBJ)utils.o $(LIB)libjson.a $(LIB)libarg_parser.a
+server: $(SRC)server.c $(OBJ)server_config.o $(OBJ)utils.o $(LIB)libjson.a $(LIB)libarg_parser.a
 	$(CC) -o $@ $(CFLAGS) $^
 
-client: $(SRC)client.c $(OBJ)utils.o $(LIB)libjson.a $(LIB)libarg_parser.a
+client: $(SRC)client.c $(OBJ)client_config.o $(OBJ)utils.o $(LIB)libjson.a $(LIB)libarg_parser.a
 	$(CC) -o $@ $(CFLAGS) $^
 
 $(OBJ)%.o: $(SRC)%.c $(INCLUDE_LOCAL)%.h | $(OBJ)

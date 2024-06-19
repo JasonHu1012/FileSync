@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <sys/errno.h>
 #include <unistd.h>
+#include <string.h>
+#include <stdio.h>
 
 // use these when errno is set
 #define ERR_EXIT(s) do {fprintf(stderr, "fatal: %s: %s\n", s, strerror(errno)); exit(1);} while (0)
