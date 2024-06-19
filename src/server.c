@@ -104,7 +104,7 @@ void load_config_default() {
 }
 
 void load_config(int argc, char **argv) {
-    char const *FILE_PATH = "./server_config.json";
+    char const *FILE_PATH = "config/server_config.json";
 
     // initialize config
     config.port = -1;
