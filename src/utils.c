@@ -4,14 +4,14 @@
 #include <arpa/inet.h>
 #include <string.h>
 
-long long extend_buf(char **buf, long long buf_size, long long new_buf_size) {
+uint64_t extend_buf(char **buf, uint64_t buf_size, uint64_t new_buf_size) {
     if (buf_size >= new_buf_size) {
         return buf_size;
     }
 
     // avoid `buf_size` becomes zero and goes into infinite loop
     int count = 0;
-    while (count < sizeof(long long) && buf_size < new_buf_size) {
+    while (count < sizeof(uint64_t) && buf_size < new_buf_size) {
         buf_size <<= 1;
         count++;
     }

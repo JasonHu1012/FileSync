@@ -43,16 +43,16 @@ int init_socket(char *host, int port) {
 
 // info is stored in `*info`
 // return 0 when success, -1 when error
-int request_info(int conn_fd, char *path, json_data **info, char **buf, long long *buf_size) {
+int request_info(int conn_fd, char *path, json_data **info, char **buf, uint64_t *buf_size) {
     // send [0][path length][path]
-    *buf_size = extend_buf(buf, *buf_size, sizeof(int));
-    ((int *)*buf)[0] = htonl(0);
-    if (bulk_write(conn_fd, *buf, sizeof(int)) != sizeof(int)) {
+    *buf_size = extend_buf(buf, *buf_size, sizeof(uint32_t));
+    ((uint32_t *)*buf)[0] = htonl(0);
+    if (bulk_write(conn_fd, *buf, sizeof(uint32_t)) != sizeof(uint32_t)) {
         ERR_LOG("request %s info failed", path);
         return -1;
     }
-    ((long long *)*buf)[0] = my_htonll(strlen(path));
-    if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
+    ((uint64_t *)*buf)[0] = my_htonll(strlen(path));
+    if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_LOG("request %s info failed", path);
         return -1;
     }
@@ -63,8 +63,8 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, long lon
     printf("requested %s info\n", path);
 
     // get requested result
-    long long message_len;
-    if (bulk_read(conn_fd, &message_len, sizeof(long long)) != sizeof(long long)) {
+    uint64_t message_len;
+    if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_LOG("receive %s info failed", path);
         return -1;
     }
@@ -87,19 +87,19 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, long lon
 // request "{remote_dir}/{path}" content
 // received content will be written to file
 // return 0 when success, -1 when error
-int request_content(int conn_fd, char *path, mode_t permission, char **buf, long long *buf_size) {
+int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint64_t *buf_size) {
     int const BLOCK_SIZE = 4096;
 
     // send [1][path length][path]
-    *buf_size = extend_buf(buf, *buf_size, sizeof(int));
-    ((int *)*buf)[0] = htonl(1);
-    if (bulk_write(conn_fd, *buf, sizeof(int)) != sizeof(int)) {
+    *buf_size = extend_buf(buf, *buf_size, sizeof(uint32_t));
+    ((uint32_t *)*buf)[0] = htonl(1);
+    if (bulk_write(conn_fd, *buf, sizeof(uint32_t)) != sizeof(uint32_t)) {
         ERR_LOG("request %s content failed", path);
         return -1;
     }
-    *buf_size = extend_buf(buf, *buf_size, sizeof(long long));
-    ((long long *)*buf)[0] = my_htonll(strlen(config.remote_dir) + strlen(path) + 1);
-    if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
+    *buf_size = extend_buf(buf, *buf_size, sizeof(uint64_t));
+    ((uint64_t *)*buf)[0] = my_htonll(strlen(config.remote_dir) + strlen(path) + 1);
+    if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_LOG("request %s content failed", path);
         return -1;
     }
@@ -112,8 +112,8 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, long
     printf("requested %s content\n", *buf);
 
     // get requested content length
-    long long message_len;
-    if (bulk_read(conn_fd, &message_len, sizeof(long long)) != sizeof(long long)) {
+    uint64_t message_len;
+    if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_LOG("receive %s content failed", path);
         return -1;
     }
@@ -169,7 +169,7 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, long
 }
 
 // return 0 when success, -1 when error
-int traverse(int conn_fd, json_data *info, char *prefix, char **buf, long long *buf_size) {
+int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *buf_size) {
     json_data *entries = json_obj_get(info, "entries");
     int entries_size = json_arr_size(entries);
     for (int i = 0; i < entries_size; i++) {
@@ -260,9 +260,9 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, long long *
 void communicate(int conn_fd) {
     // TODO: request remote directory
     // maybe add arg option to interactively select remote directory
-    long long const INIT_BUF_SIZE = 128;
+    uint64_t const INIT_BUF_SIZE = 128;
 
-    long long buf_size = INIT_BUF_SIZE;
+    uint64_t buf_size = INIT_BUF_SIZE;
     char *buf = (char *)malloc(sizeof(char) * (buf_size + 1));
 
     json_data *info = NULL;

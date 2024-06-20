@@ -15,9 +15,9 @@
 
 #define MIN(a, b) (a) < (b) ? (a) : (b)
 
-// extend `*buf` to at least `new_buf_size` long
+// extend `*buf` to at least `new_buf_size` long, data may be cleared
 // return extended buffer size
-long long extend_buf(char **buf, long long buf_size, long long new_buf_size);
+uint64_t extend_buf(char **buf, uint64_t buf_size, uint64_t new_buf_size);
 
 // use loop to make sure all data is read / written
 ssize_t bulk_read(int fd, void *buf, size_t len);

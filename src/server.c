@@ -11,6 +11,7 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include "json.h"
 #include "utils.h"
 #include "server_config.h"
@@ -147,10 +148,10 @@ bool is_valid_request_path(char *path) {
 }
 
 // return 0 when success, -1 when error
-int respond_info(int conn_fd, char **buf, long long *buf_size) {
+int respond_info(int conn_fd, char **buf, uint64_t *buf_size) {
     // get requested path
-    long long message_len;
-    if (bulk_read(conn_fd, &message_len, sizeof(long long)) != sizeof(long long)) {
+    uint64_t message_len;
+    if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_PID_LOG("receive info request failed");
         return -1;
     }
@@ -208,9 +209,9 @@ int respond_info(int conn_fd, char **buf, long long *buf_size) {
     char *path = (char *)malloc(sizeof(char) * (strlen(*buf) + 1));
     strcpy(path, *buf);
 
-    *buf_size = extend_buf(buf, *buf_size, sizeof(long long));
-    ((long long *)*buf)[0] = my_htonll(strlen(info_str));
-    if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
+    *buf_size = extend_buf(buf, *buf_size, sizeof(uint64_t));
+    ((uint64_t *)*buf)[0] = my_htonll(strlen(info_str));
+    if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_PID_LOG("respond %s info failed", path);
         free(info_str);
         free(path);
@@ -231,12 +232,12 @@ int respond_info(int conn_fd, char **buf, long long *buf_size) {
 }
 
 // return 0 when success, -1 when error
-int respond_content(int conn_fd, char **buf, long long *buf_size) {
+int respond_content(int conn_fd, char **buf, uint64_t *buf_size) {
     int const BLOCK_SIZE = 4096;
 
     // get requested path
-    long long message_len;
-    if (bulk_read(conn_fd, &message_len, sizeof(long long)) != sizeof(long long)) {
+    uint64_t message_len;
+    if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_PID_LOG("receive content request failed");
         return -1;
     }
@@ -278,9 +279,9 @@ int respond_content(int conn_fd, char **buf, long long *buf_size) {
     char *path = (char *)malloc(sizeof(char) * (strlen(*buf) + 1));
     strcpy(path, *buf);
 
-    *buf_size = extend_buf(buf, *buf_size, sizeof(long long));
-    ((long long *)*buf)[0] = my_htonll(st.st_size);
-    if (bulk_write(conn_fd, *buf, sizeof(long long)) != sizeof(long long)) {
+    *buf_size = extend_buf(buf, *buf_size, sizeof(uint64_t));
+    ((uint64_t *)*buf)[0] = my_htonll(st.st_size);
+    if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_PID_LOG("respond %s content failed", path);
         free(path);
         close(file_fd);
@@ -321,14 +322,14 @@ int respond_content(int conn_fd, char **buf, long long *buf_size) {
 }
 
 void communicate(int conn_fd) {
-    long long const INIT_BUF_SIZE = 128;
+    uint64_t const INIT_BUF_SIZE = 128;
 
-    long long buf_size = INIT_BUF_SIZE;
+    uint64_t buf_size = INIT_BUF_SIZE;
     char *buf = (char *)malloc(sizeof(char) * (buf_size + 1));
 
-    int command;
+    uint32_t command;
     while (1) {
-        if (bulk_read(conn_fd, &command, sizeof(int)) != sizeof(int)) {
+        if (bulk_read(conn_fd, &command, sizeof(uint32_t)) != sizeof(uint32_t)) {
             goto finish;
         }
         command = ntohl(command);
