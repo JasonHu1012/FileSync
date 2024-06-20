@@ -225,7 +225,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
 
             if (access(path, F_OK) == -1) {
                 // the directory doesn't exist
-                if (mkdir(path, 0755) == -1) {
+                if (mkdir(path, (mode_t)json_num_get(json_obj_get(sub_info, "permission"))) == -1) {
                     if (errno == EEXIST) {
                         fprintf(stderr, "warning: try to create directory %s but it already exists\n", path);
                     }
