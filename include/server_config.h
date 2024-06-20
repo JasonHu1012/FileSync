@@ -7,7 +7,7 @@ typedef struct {
     char *config_path;
 } config_t;
 
-config_t config;
+extern config_t config;
 
 void load_config(int argc, char **argv);
 

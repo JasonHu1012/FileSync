@@ -8,6 +8,8 @@
 #include "json.h"
 #include "utils.h"
 
+config_t config;
+
 static void load_config_arg(int argc, char **argv) {
     arg_parser *arg = arg_init();
     arg_register(arg, "-p", "port", ARG_INT);

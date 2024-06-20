@@ -1,6 +1,5 @@
 // TODO: tolerate error
 // TODO: program terminates when updating file
-// TODO: function too long
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,7 +75,7 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, uint64_t
         return -1;
     }
     (*buf)[message_len] = 0;
-    printf("received %s info (%lld bytes)\n", path, message_len);
+    printf("received %s info (%lld bytes)\n", path, (long long)message_len);
 
     // convert result to json
     *info = json_parse(*buf);
