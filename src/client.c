@@ -1,5 +1,6 @@
 // TODO: tolerate error
-// TODO: program terminates when updating file
+// TODO: program terminates when updating file, exit when current file is finished
+// TODO: exit message
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,7 +35,7 @@ int init_socket(char *host, int port) {
 
     if (connect(conn_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         fprintf(stderr, "warning: is server alive?\n");
-        ERR_EXIT("connect");
+        ERR_EXIT("connect to %s:%d failed", host, port);
     }
 
     return conn_fd;
@@ -287,7 +288,7 @@ int main(int argc, char **argv) {
         config.host, config.port, config.remote_dir, config.local_dir);
 
     if (chdir(config.local_dir) == -1) {
-        ERR_EXIT("chdir");
+        ERR_EXIT("change working directory to %s failed", config.local_dir);
     }
     char *cwd = getcwd(NULL, 0);
     printf("sync to local directory %s\n", cwd);

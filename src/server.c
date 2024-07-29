@@ -1,5 +1,4 @@
 // TODO: tolerate error
-// TODO: function too long
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,7 +36,7 @@ int init_socket(int port) {
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(sock_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-        ERR_EXIT("bind");
+        ERR_EXIT("bind to port %d failed", port);
     }
 
     // listen
@@ -366,7 +365,7 @@ int main(int argc, char **argv) {
     printf("config:\n  port = %d\n  working directory = %s\n", config.port, config.work_dir);
 
     if (chdir(config.work_dir) == -1) {
-        ERR_EXIT("chdir");
+        ERR_EXIT("change working directory to %s failed", config.work_dir);
     }
     char *cwd = getcwd(NULL, 0);
     printf("working at %s\n", cwd);

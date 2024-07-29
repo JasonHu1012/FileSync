@@ -9,9 +9,9 @@
 #include <stdio.h>
 
 // use these when errno is set
-#define ERR_EXIT(s) do {fprintf(stderr, "fatal: %s: %s\n", s, strerror(errno)); exit(1);} while (0)
-#define ERR_LOG(...) do {fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s\n", strerror(errno));} while (0)
-#define ERR_PID_LOG(...) do {fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s (pid %d)\n", strerror(errno), getpid());} while (0)
+#define ERR_EXIT(...) do {fprintf(stderr, "fatal: "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s\n", strerror(errno)); exit(1);} while (0)
+#define ERR_LOG(...) do {fprintf(stderr, "error: "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s\n", strerror(errno));} while (0)
+#define ERR_PID_LOG(...) do {fprintf(stderr, "error: "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s (pid %d)\n", strerror(errno), getpid());} while (0)
 
 #define MIN(a, b) (a) < (b) ? (a) : (b)
 
