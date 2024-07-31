@@ -1,5 +1,4 @@
 // TODO: tolerate error
-// TODO: program terminates when updating file, exit when current file is finished
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,9 +10,20 @@
 #include <unistd.h>
 #include <sys/errno.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #include "json.h"
 #include "utils.h"
 #include "client_config.h"
+
+bool raised_sigint = false;
+
+void handler_sigint(int signum) {
+    raised_sigint = true;
+
+    printf("received SIGINT, will terminate after updating current file\n");
+    printf("use ^\\ to terminate forcibly, but current file may be incomplete\n");
+    printf("and can't be updated with re-execution\n");
+}
 
 int init_socket(char *host, int port) {
     // socket
@@ -169,6 +179,14 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint
 
 // return 0 when success, -1 when error
 int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *buf_size) {
+    // handle sigint
+    struct sigaction act_sigint;
+    struct sigaction oact_sigint;
+    act_sigint.sa_handler = handler_sigint;
+    sigemptyset(&act_sigint.sa_mask);
+    act_sigint.sa_flags = SA_RESTART;
+    sigaction(SIGINT, &act_sigint, &oact_sigint);
+
     json_data *entries = json_obj_get(info, "entries");
     int entries_size = json_arr_size(entries);
     for (int i = 0; i < entries_size; i++) {
@@ -251,7 +269,15 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
         }
 
         free(path);
+
+        // check whether sigint was raised when updating files
+        if (raised_sigint) {
+            break;
+        }
     }
+
+    // restore sigint handler
+    sigaction(SIGINT, &oact_sigint, NULL);
 
     return 0;
 }

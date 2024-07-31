@@ -1,4 +1,5 @@
 // TODO: tolerate error
+// TODO: terminate when sending content, finish current file
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
