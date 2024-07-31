@@ -1,6 +1,5 @@
 // TODO: tolerate error
 // TODO: program terminates when updating file, exit when current file is finished
-// TODO: exit message
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -257,6 +256,20 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
     return 0;
 }
 
+// return 0 when success, -1 when error
+int send_exit(int conn_fd, char **buf, uint64_t *buf_size) {
+    // send [2]
+    *buf_size = extend_buf(buf, *buf_size, sizeof(uint32_t));
+    ((uint32_t *)*buf)[0] = htonl(2);
+    if (bulk_write(conn_fd, *buf, sizeof(uint32_t)) != sizeof(uint32_t)) {
+        ERR_LOG("send exit message failed");
+        return -1;
+    }
+    printf("sent exit message\n");
+
+    return 0;
+}
+
 void communicate(int conn_fd) {
     // TODO: request remote directory
     // maybe add arg option to interactively select remote directory
@@ -273,6 +286,8 @@ void communicate(int conn_fd) {
     if (traverse(conn_fd, info, NULL, &buf, &buf_size) == -1) {
         goto finish;
     }
+
+    send_exit(conn_fd, &buf, &buf_size);
 
 finish:
     free(buf);

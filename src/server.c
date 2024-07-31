@@ -350,8 +350,16 @@ void communicate(int conn_fd) {
             }
             break;
         }
-        default:
+        case 2:
+        {
+            printf("received exit message (pid %d)\n", getpid());
             goto finish;
+            break;
+        }
+        default:
+        {
+            goto finish;
+        }
         }
     }
 
