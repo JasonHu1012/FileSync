@@ -17,6 +17,7 @@ static void load_config_arg(int argc, char **argv) {
     arg_register(arg, "--rdir", "remote directory", ARG_STRING);
     arg_register(arg, "--ldir", "local directory", ARG_STRING);
     arg_register(arg, "--config", "config file path", ARG_STRING);
+    arg_register_bool(arg, "--query", "query server working directory, no file will be synced");
     arg_parse(arg, argc, argv);
 
     if (config.port == -1) {
@@ -33,6 +34,9 @@ static void load_config_arg(int argc, char **argv) {
     }
     if (config.config_path == NULL) {
         arg_get(arg, "--config", &config.config_path);
+    }
+    if (arg_is_parsed(arg, "--query")) {
+        config.is_query_mode = true;
     }
 
     arg_kill(arg);
@@ -88,6 +92,10 @@ static void load_config_file(char *path) {
     if (config.local_dir == NULL && sub_json) {
         config.local_dir = json_str_get(sub_json);
     }
+    sub_json = json_obj_get(json, "query");
+    if (sub_json && json_bool_get(sub_json)) {
+        config.is_query_mode = true;
+    }
 
     json_kill(json);
 }
@@ -124,6 +132,7 @@ void load_config(int argc, char **argv) {
     config.remote_dir = NULL;
     config.local_dir = NULL;
     config.config_path = NULL;
+    config.is_query_mode = false;
 
     // config priority:
     // arg > file > default

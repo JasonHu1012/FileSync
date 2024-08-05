@@ -296,15 +296,49 @@ int send_exit(int conn_fd, char **buf, uint64_t *buf_size) {
     return 0;
 }
 
+// return 0 when success, -1 when error
+int request_working_dir(int conn_fd, char **buf, uint64_t *buf_size) {
+    // send [3]
+    *buf_size = extend_buf(buf, *buf_size, sizeof(uint32_t));
+    ((uint32_t *)*buf)[0] = htonl(3);
+    if (bulk_write(conn_fd, *buf, sizeof(uint32_t)) != sizeof(uint32_t)) {
+        ERR_LOG("request working directory failed");
+        return -1;
+    }
+    printf("requested working directory\n");
+
+    // get requested result
+    uint64_t message_len;
+    if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
+        ERR_LOG("receive working directory failed");
+        return -1;
+    }
+    message_len = my_ntohll(message_len);
+
+    *buf_size = extend_buf(buf, *buf_size, message_len);
+    if (bulk_read(conn_fd, *buf, message_len) != message_len) {
+        ERR_LOG("receive working directory failed");
+        return -1;
+    }
+    (*buf)[message_len] = 0;
+    printf("server is working at %s\n", *buf);
+
+    return 0;
+}
+
 void communicate(int conn_fd) {
-    // TODO: request remote directory
-    // maybe add arg option to interactively select remote directory
     uint64_t const INIT_BUF_SIZE = 128;
 
     uint64_t buf_size = INIT_BUF_SIZE;
     char *buf = (char *)malloc(sizeof(char) * (buf_size + 1));
 
     json_data *info = NULL;
+
+    if (config.is_query_mode) {
+        request_working_dir(conn_fd, &buf, &buf_size);
+        goto finish;
+    }
+
     if (request_info(conn_fd, config.remote_dir, &info, &buf, &buf_size) == -1) {
         goto finish;
     }

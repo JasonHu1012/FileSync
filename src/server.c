@@ -1,5 +1,4 @@
 // TODO: tolerate error
-// TODO: terminate when sending content, finish current file
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -321,6 +320,29 @@ int respond_content(int conn_fd, char **buf, uint64_t *buf_size) {
     return 0;
 }
 
+// return 0 when success, -1 when error
+int respond_working_dir(int conn_fd, char **buf, uint64_t *buf_size) {
+    char *cwd = getcwd(NULL, 0);
+
+    *buf_size = extend_buf(buf, *buf_size, sizeof(uint64_t));
+    ((uint64_t *)*buf)[0] = my_htonll(strlen(cwd));
+    if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
+        ERR_PID_LOG("respond working directory failed");
+        free(cwd);
+        return -1;
+    }
+    if (bulk_write(conn_fd, cwd, strlen(cwd)) != strlen(cwd)) {
+        ERR_PID_LOG("respond working directory failed");
+        free(cwd);
+        return -1;
+    }
+    printf("responded working directory (pid %d)\n", getpid());
+
+    free(cwd);
+
+    return 0;
+}
+
 void communicate(int conn_fd) {
     uint64_t const INIT_BUF_SIZE = 128;
 
@@ -357,8 +379,17 @@ void communicate(int conn_fd) {
             goto finish;
             break;
         }
+        case 3:
+        {
+            printf("received command: request working directory (pid %d)\n", getpid());
+            if (respond_working_dir(conn_fd, &buf, &buf_size) == -1) {
+                goto finish;
+            }
+            break;
+        }
         default:
         {
+            printf("received unknown command (pid %d)\n", getpid());
             goto finish;
         }
         }
