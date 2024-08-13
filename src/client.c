@@ -1,4 +1,3 @@
-// TODO: tolerate error
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -135,9 +134,9 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint
             // maybe we don't have the write permission, delete and create
             if (remove(path) == -1) {
                 ERR_LOG("remove %s failed", path);
-                return -1;
             }
 
+            // try open file again
             file_fd = open(path, O_WRONLY | O_CREAT | O_EXCL, permission);
             if (file_fd == -1) {
                 ERR_LOG("open %s failed", path);
@@ -243,14 +242,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
             if (access(path, F_OK) == -1) {
                 // the directory doesn't exist
                 if (mkdir(path, (mode_t)json_num_get(json_obj_get(sub_info, "permission"))) == -1) {
-                    if (errno == EEXIST) {
-                        fprintf(stderr, "warning: try to create directory %s but it already exists\n", path);
-                    }
-                    else {
-                        ERR_LOG("create directory %s failed", path);
-                        free(path);
-                        return -1;
-                    }
+                    ERR_LOG("create directory %s failed", path);
                 }
                 else {
                     printf("create directory %s\n", path);
@@ -366,12 +358,7 @@ int main(int argc, char **argv) {
         if (errno == ENOENT) {
             // local directory doesn't exist, create it
             if (mkdir(config.local_dir, 0755) == -1) {
-                if (errno == EEXIST) {
-                    fprintf(stderr, "warning: try to create directory %s but it already exists\n", config.local_dir);
-                }
-                else {
-                    ERR_LOG("create directory %s failed", config.local_dir);
-                }
+                ERR_LOG("create directory %s failed", config.local_dir);
             }
             else {
                 printf("create directory %s\n", config.local_dir);

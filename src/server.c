@@ -1,4 +1,3 @@
-// TODO: tolerate error
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,8 +85,7 @@ int traverse(char *name, json_data **info) {
         if (entry->d_type == DT_REG) {
             if (stat(entry->d_name, &st) == -1) {
                 ERR_PID_LOG("get %s status failed", entry->d_name);
-                closedir(dirp);
-                return -1;
+                continue;
             }
 
             sub_info = json_obj_init();
@@ -102,8 +100,7 @@ int traverse(char *name, json_data **info) {
             if (chdir(entry->d_name) == -1) {
                 ERR_PID_LOG("change working directory to %s failed", entry->d_name);
                 free(cwd);
-                closedir(dirp);
-                return -1;
+                continue;
             }
 
             if (traverse(entry->d_name, &sub_info) == -1) {
@@ -116,6 +113,7 @@ int traverse(char *name, json_data **info) {
             }
 
             if (chdir(cwd) == -1) {
+                // go to parent directory, shouldn't fail, so return -1
                 ERR_PID_LOG("change working directory to %s failed", cwd);
                 json_kill(sub_info);
                 free(cwd);
@@ -264,14 +262,14 @@ int respond_content(int conn_fd, char **buf, uint64_t *buf_size) {
     int file_fd = open(*buf, O_RDONLY);
     if (file_fd == -1) {
         ERR_PID_LOG("open %s failed", *buf);
-        return -1;
+        goto respond_empty;
     }
 
     struct stat st;
     if (fstat(file_fd, &st) == -1) {
         ERR_PID_LOG("get %s status failed", *buf);
         close(file_fd);
-        return -1;
+        goto respond_empty;
     }
 
     // send file length
@@ -316,6 +314,17 @@ int respond_content(int conn_fd, char **buf, uint64_t *buf_size) {
 
     free(path);
     close(file_fd);
+
+    return 0;
+
+respond_empty:
+    *buf_size = extend_buf(buf, *buf_size, sizeof(uint64_t));
+    ((uint64_t *)*buf)[0] = my_htonll(0);
+    if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
+        ERR_PID_LOG("respond empty content failed");
+        return -1;
+    }
+    printf("responded empty content (pid %d)\n", getpid());
 
     return 0;
 }
@@ -389,8 +398,9 @@ void communicate(int conn_fd) {
         }
         default:
         {
-            printf("received unknown command (pid %d)\n", getpid());
+            fprintf(stderr, "warning: received unknown command (pid %d)\n", getpid());
             goto finish;
+            break;
         }
         }
     }
