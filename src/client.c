@@ -247,7 +247,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
                         fprintf(stderr, "warning: try to create directory %s but it already exists\n", path);
                     }
                     else {
-                        ERR_LOG("error: create directory %s failed", path);
+                        ERR_LOG("create directory %s failed", path);
                         free(path);
                         return -1;
                     }
@@ -363,7 +363,28 @@ int main(int argc, char **argv) {
         config.host, config.port, config.remote_dir, config.local_dir);
 
     if (chdir(config.local_dir) == -1) {
-        ERR_EXIT("change working directory to %s failed", config.local_dir);
+        if (errno == ENOENT) {
+            // local directory doesn't exist, create it
+            if (mkdir(config.local_dir, 0755) == -1) {
+                if (errno == EEXIST) {
+                    fprintf(stderr, "warning: try to create directory %s but it already exists\n", config.local_dir);
+                }
+                else {
+                    ERR_LOG("create directory %s failed", config.local_dir);
+                }
+            }
+            else {
+                printf("create directory %s\n", config.local_dir);
+            }
+
+            // try change directory again
+            if (chdir(config.local_dir) == -1) {
+                ERR_EXIT("change working directory to %s failed", config.local_dir);
+            }
+        }
+        else {
+            ERR_EXIT("change working directory to %s failed", config.local_dir);
+        }
     }
     char *cwd = getcwd(NULL, 0);
     printf("sync to local directory %s\n", cwd);
