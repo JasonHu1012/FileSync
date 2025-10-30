@@ -13,7 +13,7 @@
 #define ERR_LOG(...) do {fprintf(stderr, "error: "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s\n", strerror(errno));} while (0)
 #define ERR_PID_LOG(...) do {fprintf(stderr, "error: "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s (pid %d)\n", strerror(errno), getpid());} while (0)
 
-#define MIN(a, b) (a) < (b) ? (a) : (b)
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 // extend `*buf` to at least `new_buf_size` long, data may be cleared
 // return extended buffer size
