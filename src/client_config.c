@@ -92,10 +92,6 @@ static void load_config_file(char *path) {
     if (config.local_dir == NULL && sub_json) {
         config.local_dir = json_str_get(sub_json);
     }
-    sub_json = json_obj_get(json, "query");
-    if (sub_json && json_bool_get(sub_json)) {
-        config.is_query_mode = true;
-    }
 
     json_kill(json);
 }
