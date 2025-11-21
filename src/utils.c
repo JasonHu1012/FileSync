@@ -22,6 +22,21 @@ uint64_t extend_buf(char **buf, uint64_t buf_size, uint64_t new_buf_size) {
     return buf_size;
 }
 
+uint64_t append_buf_uint32(char *buf, uint64_t offset, uint32_t data) {
+    *(uint32_t *)(buf + offset) = data;
+    return offset + sizeof(uint32_t);
+}
+
+uint64_t append_buf_uint64(char *buf, uint64_t offset, uint64_t data) {
+    *(uint64_t *)(buf + offset) = data;
+    return offset + sizeof(uint64_t);
+}
+
+uint64_t append_buf_charp(char *buf, uint64_t offset, char *data) {
+    strcpy(buf + offset, data);
+    return offset + strlen(data);
+}
+
 ssize_t bulk_read(int fd, void *buf, size_t len) {
     ssize_t read_len = 0;
     while (len > 0) {

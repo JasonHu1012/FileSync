@@ -53,35 +53,27 @@ int init_socket(char *host, int port) {
 // return 0 when success, -1 when error
 int request_info(int conn_fd, char *path, json_data **info, char **buf, uint64_t *buf_size) {
     // send [0][path length][path]
-    *buf_size = extend_buf(buf, *buf_size, sizeof(uint32_t));
-    ((uint32_t *)*buf)[0] = htonl(0);
-    if (bulk_write(conn_fd, *buf, sizeof(uint32_t)) != sizeof(uint32_t)) {
-        ERR_LOG("request %s info failed", path);
-        return -1;
-    }
-    ((uint64_t *)*buf)[0] = my_htonll(strlen(path));
-    if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
-        ERR_LOG("request %s info failed", path);
-        return -1;
-    }
-    if (bulk_write(conn_fd, path, strlen(path)) != strlen(path)) {
+    uint64_t message_len = sizeof(uint32_t) + sizeof(uint64_t) + strlen(path);
+    *buf_size = extend_buf(buf, *buf_size, message_len);
+    message_len = append_buf_uint32(*buf, 0, htonl(0));
+    message_len = append_buf_uint64(*buf, message_len, my_htonll(strlen(path)));
+    message_len = append_buf_charp(*buf, message_len, path);
+
+    if (bulk_write(conn_fd, *buf, message_len) != message_len) {
         ERR_LOG("request %s info failed", path);
         return -1;
     }
     printf("requested %s info\n", path);
 
     // get requested result
-    uint64_t message_len;
     if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
-        ERR_LOG("receive %s info failed", path);
-        return -1;
+        goto receive_fail;
     }
     message_len = my_ntohll(message_len);
 
     *buf_size = extend_buf(buf, *buf_size, message_len);
     if (bulk_read(conn_fd, *buf, message_len) != message_len) {
-        ERR_LOG("receive %s info failed", path);
-        return -1;
+        goto receive_fail;
     }
     (*buf)[message_len] = 0;
     printf("received %s info (%lld bytes)\n", path, (long long)message_len);
@@ -90,6 +82,10 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, uint64_t
     *info = json_parse(*buf);
 
     return 0;
+
+receive_fail:
+    ERR_LOG("receive %s info failed", path);
+    return -1;
 }
 
 // request "{remote_dir}/{path}" content
@@ -98,36 +94,33 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, uint64_t
 int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint64_t *buf_size) {
     int const BLOCK_SIZE = 4096;
 
+    char *request_path = (char *)malloc(sizeof(char) * (strlen(config.remote_dir) + 1 + strlen(path)));
+    sprintf(request_path, "%s/%s", config.remote_dir, path);
+
     // send [1][path length][path]
-    *buf_size = extend_buf(buf, *buf_size, sizeof(uint32_t));
-    ((uint32_t *)*buf)[0] = htonl(1);
-    if (bulk_write(conn_fd, *buf, sizeof(uint32_t)) != sizeof(uint32_t)) {
-        ERR_LOG("request %s content failed", path);
+    uint64_t message_len = sizeof(uint32_t) + sizeof(uint64_t) + strlen(request_path);
+    *buf_size = extend_buf(buf, *buf_size, message_len);
+    message_len = append_buf_uint32(*buf, 0, htonl(1));
+    message_len = append_buf_uint64(*buf, message_len, my_htonll(strlen(request_path)));
+    message_len = append_buf_charp(*buf, message_len, request_path);
+
+    if (bulk_write(conn_fd, *buf, message_len) != message_len) {
+        ERR_LOG("request %s content failed", request_path);
+        free(request_path);
         return -1;
     }
-    *buf_size = extend_buf(buf, *buf_size, sizeof(uint64_t));
-    ((uint64_t *)*buf)[0] = my_htonll(strlen(config.remote_dir) + strlen(path) + 1);
-    if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
-        ERR_LOG("request %s content failed", path);
-        return -1;
-    }
-    *buf_size = extend_buf(buf, *buf_size, strlen(config.remote_dir) + strlen(path) + 1);
-    sprintf(*buf, "%s/%s", config.remote_dir, path);
-    if (bulk_write(conn_fd, *buf, strlen(*buf)) != strlen(*buf)) {
-        ERR_LOG("request %s content failed", path);
-        return -1;
-    }
-    printf("requested %s content\n", *buf);
+    printf("requested %s content\n", request_path);
 
     // get requested content length
-    uint64_t message_len;
     if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
-        ERR_LOG("receive %s content failed", path);
+        ERR_LOG("receive %s content failed", request_path);
+        free(request_path);
         return -1;
     }
     message_len = my_ntohll(message_len);
 
     // open file
+    // TODO: check first
     int file_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, permission);
     if (file_fd == -1) {
         if (errno == EACCES) {
@@ -156,7 +149,8 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint
         // get content
         int len = bulk_read(conn_fd, *buf, MIN(BLOCK_SIZE, message_len - receive_len));
         if (len == 0 || len == -1) {
-            ERR_LOG("receive %s content failed", path);
+            ERR_LOG("receive %s content failed", request_path);
+            free(request_path);
             close(file_fd);
             return -1;
         }
@@ -164,13 +158,16 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint
 
         // write to file
         if (bulk_write(file_fd, *buf, len) != len) {
-            ERR_LOG("write %s content to file failed", path);
+            ERR_LOG("write %s content to file failed", request_path);
+            free(request_path);
             close(file_fd);
             return -1;
         }
     }
-    printf("synced %s (%lld bytes)\n", path, receive_len);
+    // TODO: print uint64_t?
+    printf("synced %s (%lld bytes)\n", request_path, receive_len);
 
+    free(request_path);
     close(file_fd);
 
     return 0;
@@ -278,7 +275,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
 int send_exit(int conn_fd, char **buf, uint64_t *buf_size) {
     // send [2]
     *buf_size = extend_buf(buf, *buf_size, sizeof(uint32_t));
-    ((uint32_t *)*buf)[0] = htonl(2);
+    append_buf_uint32(*buf, 0, htonl(2));
     if (bulk_write(conn_fd, *buf, sizeof(uint32_t)) != sizeof(uint32_t)) {
         ERR_LOG("send exit message failed");
         return -1;
@@ -292,7 +289,7 @@ int send_exit(int conn_fd, char **buf, uint64_t *buf_size) {
 int request_working_dir(int conn_fd, char **buf, uint64_t *buf_size) {
     // send [3]
     *buf_size = extend_buf(buf, *buf_size, sizeof(uint32_t));
-    ((uint32_t *)*buf)[0] = htonl(3);
+    append_buf_uint32(*buf, 0, htonl(3));
     if (bulk_write(conn_fd, *buf, sizeof(uint32_t)) != sizeof(uint32_t)) {
         ERR_LOG("request working directory failed");
         return -1;
@@ -321,6 +318,7 @@ int request_working_dir(int conn_fd, char **buf, uint64_t *buf_size) {
 void communicate(int conn_fd) {
     uint64_t const INIT_BUF_SIZE = 128;
 
+    // not including the terminating '\0'
     uint64_t buf_size = INIT_BUF_SIZE;
     char *buf = (char *)malloc(sizeof(char) * (buf_size + 1));
 
@@ -339,9 +337,9 @@ void communicate(int conn_fd) {
         goto finish;
     }
 
+finish:
     send_exit(conn_fd, &buf, &buf_size);
 
-finish:
     free(buf);
     if (info) {
         json_kill(info);
@@ -354,10 +352,12 @@ int main(int argc, char **argv) {
     printf("config:\n  host = %s\n  port = %d\n  remote directory = %s\n  local directory = %s\n",
         config.host, config.port, config.remote_dir, config.local_dir);
 
+    // TODO: detect whether directory exist first
     if (chdir(config.local_dir) == -1) {
         if (errno == ENOENT) {
+            // TODO: mkdir a/b/c
             // local directory doesn't exist, create it
-            if (mkdir(config.local_dir, 0755) == -1) {
+            if (mkdir(config.local_dir, 0777) == -1) {
                 ERR_LOG("create directory %s failed", config.local_dir);
             }
             else {

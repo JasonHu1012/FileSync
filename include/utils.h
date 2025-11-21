@@ -16,8 +16,16 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 // extend `*buf` to at least `new_buf_size` long, data may be cleared
+// `new_buf_size` doesn't include the terminating '\0'
 // return extended buffer size
 uint64_t extend_buf(char **buf, uint64_t buf_size, uint64_t new_buf_size);
+
+// append `data` to `buf[offset]`
+// `buf` should be long enough
+// return valid buffer length after appending
+uint64_t append_buf_uint32(char *buf, uint64_t offset, uint32_t data);
+uint64_t append_buf_uint64(char *buf, uint64_t offset, uint64_t data);
+uint64_t append_buf_charp(char *buf, uint64_t offset, char *data);
 
 // use loop to make sure all data is read / written
 ssize_t bulk_read(int fd, void *buf, size_t len);

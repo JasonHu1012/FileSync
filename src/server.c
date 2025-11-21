@@ -207,7 +207,8 @@ int respond_info(int conn_fd, char **buf, uint64_t *buf_size) {
     strcpy(path, *buf);
 
     *buf_size = extend_buf(buf, *buf_size, sizeof(uint64_t));
-    ((uint64_t *)*buf)[0] = my_htonll(strlen(info_str));
+    append_buf_uint64(*buf, 0, my_htonll(strlen(info_str)));
+    // not appending `info_str` to `*buf` because it's too large
     if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_PID_LOG("respond %s info failed", path);
         free(info_str);
@@ -277,7 +278,7 @@ int respond_content(int conn_fd, char **buf, uint64_t *buf_size) {
     strcpy(path, *buf);
 
     *buf_size = extend_buf(buf, *buf_size, sizeof(uint64_t));
-    ((uint64_t *)*buf)[0] = my_htonll(st.st_size);
+    append_buf_uint64(*buf, 0, my_htonll(st.st_size));
     if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_PID_LOG("respond %s content failed", path);
         free(path);
@@ -319,7 +320,7 @@ int respond_content(int conn_fd, char **buf, uint64_t *buf_size) {
 
 respond_empty:
     *buf_size = extend_buf(buf, *buf_size, sizeof(uint64_t));
-    ((uint64_t *)*buf)[0] = my_htonll(0);
+    append_buf_uint64(*buf, 0, my_htonll(0));
     if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
         ERR_PID_LOG("respond empty content failed");
         return -1;
@@ -333,21 +334,17 @@ respond_empty:
 int respond_working_dir(int conn_fd, char **buf, uint64_t *buf_size) {
     char *cwd = getcwd(NULL, 0);
 
-    *buf_size = extend_buf(buf, *buf_size, sizeof(uint64_t));
-    ((uint64_t *)*buf)[0] = my_htonll(strlen(cwd));
-    if (bulk_write(conn_fd, *buf, sizeof(uint64_t)) != sizeof(uint64_t)) {
+    uint64_t message_len = sizeof(uint64_t) + strlen(cwd);
+    *buf_size = extend_buf(buf, *buf_size, message_len);
+    message_len = append_buf_uint64(*buf, 0, my_htonll(strlen(cwd)));
+    message_len = append_buf_charp(*buf, message_len, cwd);
+    free(cwd);
+
+    if (bulk_write(conn_fd, *buf, message_len) != message_len) {
         ERR_PID_LOG("respond working directory failed");
-        free(cwd);
-        return -1;
-    }
-    if (bulk_write(conn_fd, cwd, strlen(cwd)) != strlen(cwd)) {
-        ERR_PID_LOG("respond working directory failed");
-        free(cwd);
         return -1;
     }
     printf("responded working directory (pid %d)\n", getpid());
-
-    free(cwd);
 
     return 0;
 }
