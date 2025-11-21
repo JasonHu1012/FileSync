@@ -94,7 +94,7 @@ receive_fail:
 int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint64_t *buf_size) {
     int const BLOCK_SIZE = 4096;
 
-    char *request_path = (char *)malloc(sizeof(char) * (strlen(config.remote_dir) + 1 + strlen(path)));
+    char *request_path = (char *)malloc(sizeof(char) * (strlen(config.remote_dir) + strlen(path) + 2));
     sprintf(request_path, "%s/%s", config.remote_dir, path);
 
     // send [1][path length][path]
@@ -133,11 +133,13 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint
             file_fd = open(path, O_WRONLY | O_CREAT | O_EXCL, permission);
             if (file_fd == -1) {
                 ERR_LOG("open %s failed", path);
+                free(request_path);
                 return -1;
             }
         }
         else {
             ERR_LOG("open %s failed", path);
+            free(request_path);
             return -1;
         }
     }
