@@ -351,29 +351,22 @@ finish:
 int main(int argc, char **argv) {
     load_config(argc, argv);
     validate_config();
-    printf("config:\n  host = %s\n  port = %d\n  remote directory = %s\n  local directory = %s\n",
+    printf("config:\n  host = %s\n  port = %d\n  remote directory = %s\n  local directory = %s\n\n",
         config.host, config.port, config.remote_dir, config.local_dir);
 
-    // TODO: detect whether directory exist first
-    if (chdir(config.local_dir) == -1) {
-        if (errno == ENOENT) {
-            // TODO: mkdir a/b/c
-            // local directory doesn't exist, create it
-            if (mkdir(config.local_dir, 0777) == -1) {
-                ERR_LOG("create directory %s failed", config.local_dir);
-            }
-            else {
-                printf("create directory %s\n", config.local_dir);
-            }
-
-            // try change directory again
-            if (chdir(config.local_dir) == -1) {
-                ERR_EXIT("change working directory to %s failed", config.local_dir);
-            }
+    if (access(config.local_dir, F_OK) == -1) {
+        // local directory doesn't exist, create it
+        // TODO: mkdir a/b/c
+        if (mkdir(config.local_dir, 0777) == -1) {
+            ERR_LOG("create directory %s failed", config.local_dir);
         }
         else {
-            ERR_EXIT("change working directory to %s failed", config.local_dir);
+            printf("created directory %s\n", config.local_dir);
         }
+    }
+
+    if (chdir(config.local_dir) == -1) {
+        ERR_EXIT("change working directory to %s failed", config.local_dir);
     }
     char *cwd = getcwd(NULL, 0);
     printf("sync to local directory %s\n", cwd);
