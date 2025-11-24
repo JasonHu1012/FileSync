@@ -409,7 +409,7 @@ finish:
 int main(int argc, char **argv) {
     load_config(argc, argv);
     validate_config();
-    printf("config:\n  port = %d\n  working directory = %s\n", config.port, config.work_dir);
+    printf("config:\n  port = %d\n  working directory = %s\n\n", config.port, config.work_dir);
 
     if (chdir(config.work_dir) == -1) {
         ERR_EXIT("change working directory to %s failed", config.work_dir);

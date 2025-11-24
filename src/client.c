@@ -94,65 +94,74 @@ receive_fail:
 int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint64_t *buf_size) {
     int const BLOCK_SIZE = 4096;
 
-    char *request_path = (char *)malloc(sizeof(char) * (strlen(config.remote_dir) + strlen(path) + 2));
-    sprintf(request_path, "%s/%s", config.remote_dir, path);
-
     // send [1][path length][path]
-    uint64_t message_len = sizeof(uint32_t) + sizeof(uint64_t) + strlen(request_path);
+    uint64_t message_len = sizeof(uint32_t) + sizeof(uint64_t) + strlen(config.remote_dir) + 1 + strlen(path);
     *buf_size = extend_buf(buf, *buf_size, message_len);
     message_len = append_buf_uint32(*buf, 0, htonl(1));
-    message_len = append_buf_uint64(*buf, message_len, my_htonll(strlen(request_path)));
-    message_len = append_buf_charp(*buf, message_len, request_path);
+    message_len = append_buf_uint64(*buf, message_len, my_htonll(strlen(config.remote_dir) + 1 + strlen(path)));
+    message_len = append_buf_charp(*buf, message_len, config.remote_dir);
+    message_len = append_buf_charp(*buf, message_len, "/");
+    message_len = append_buf_charp(*buf, message_len, path);
 
     if (bulk_write(conn_fd, *buf, message_len) != message_len) {
-        ERR_LOG("request %s content failed", request_path);
-        free(request_path);
+        ERR_LOG("request %s/%s content failed", config.remote_dir, path);
         return -1;
     }
-    printf("requested %s content\n", request_path);
+    printf("requested %s/%s content\n", config.remote_dir, path);
 
     // get requested content length
     if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
-        ERR_LOG("receive %s content failed", request_path);
-        free(request_path);
+        ERR_LOG("receive %s/%s content failed", config.remote_dir, path);
         return -1;
     }
     message_len = my_ntohll(message_len);
 
     // open file
-    // TODO: check first
-    int file_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, permission);
-    if (file_fd == -1) {
-        if (errno == EACCES) {
-            // maybe we don't have the write permission, delete and create
-            if (remove(path) == -1) {
-                ERR_LOG("remove %s failed", path);
-            }
-
-            // try open file again
-            file_fd = open(path, O_WRONLY | O_CREAT | O_EXCL, permission);
-            if (file_fd == -1) {
-                ERR_LOG("open %s failed", path);
-                free(request_path);
-                return -1;
-            }
+    int file_fd;
+    if (access(path, F_OK) == 0) {
+        // file exists
+        // add write permission
+        struct stat st;
+        if (stat(path, &st) == -1) {
+            ERR_LOG("get %s status failed", path);
+            return -1;
         }
-        else {
+        if (chmod(path, st.st_mode | 0200) == -1) {
+            ERR_LOG("change %s mode failed", path);
+            return -1;
+        }
+
+        file_fd = open(path, O_WRONLY | O_TRUNC);
+        if (file_fd == -1) {
             ERR_LOG("open %s failed", path);
-            free(request_path);
+            return -1;
+        }
+
+        // reset permission
+        if (chmod(path, st.st_mode) == -1) {
+            ERR_LOG("reset %s mode failed", path);
+            close(file_fd);
+            return -1;
+        }
+    }
+    else {
+        // file doesn't exist, create it
+        file_fd = open(path, O_WRONLY | O_CREAT | O_EXCL, permission);
+        if (file_fd == -1) {
+            ERR_LOG("open %s failed", path);
             return -1;
         }
     }
 
     // get content and write to file
+    // TODO: make mtime equal for bidirectional sync
     *buf_size = extend_buf(buf, *buf_size, BLOCK_SIZE);
     long long receive_len = 0;
     while (receive_len < message_len) {
         // get content
         int len = bulk_read(conn_fd, *buf, MIN(BLOCK_SIZE, message_len - receive_len));
         if (len == 0 || len == -1) {
-            ERR_LOG("receive %s content failed", request_path);
-            free(request_path);
+            ERR_LOG("receive %s/%s content failed", config.remote_dir, path);
             close(file_fd);
             return -1;
         }
@@ -160,16 +169,14 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint
 
         // write to file
         if (bulk_write(file_fd, *buf, len) != len) {
-            ERR_LOG("write %s content to file failed", request_path);
-            free(request_path);
+            ERR_LOG("write %s/%s content to file failed", config.remote_dir, path);
             close(file_fd);
             return -1;
         }
     }
     // TODO: print uint64_t?
-    printf("synced %s (%lld bytes)\n", request_path, receive_len);
+    printf("synced %s/%s (%lld bytes)\n", config.remote_dir, path, receive_len);
 
-    free(request_path);
     close(file_fd);
 
     return 0;
@@ -240,6 +247,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
 
             if (access(path, F_OK) == -1) {
                 // the directory doesn't exist
+                // TODO: change permission after traversing it
                 if (mkdir(path, (mode_t)json_num_get(json_obj_get(sub_info, "permission"))) == -1) {
                     ERR_LOG("create directory %s failed", path);
                 }
