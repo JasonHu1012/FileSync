@@ -10,6 +10,7 @@
 #include <sys/errno.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <inttypes.h>
 #include "json.h"
 #include "utils.h"
 #include "client_config.h"
@@ -76,7 +77,7 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, uint64_t
         goto receive_fail;
     }
     (*buf)[message_len] = 0;
-    printf("received %s info (%lld bytes)\n", path, (long long)message_len);
+    printf("received %s info (%" PRIu64 " bytes)\n", path, message_len);
 
     // convert result to json
     *info = json_parse(*buf);
@@ -156,7 +157,7 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint
     // get content and write to file
     // TODO: make mtime equal for bidirectional sync
     *buf_size = extend_buf(buf, *buf_size, BLOCK_SIZE);
-    long long receive_len = 0;
+    uint64_t receive_len = 0;
     while (receive_len < message_len) {
         // get content
         int len = bulk_read(conn_fd, *buf, MIN(BLOCK_SIZE, message_len - receive_len));
@@ -174,8 +175,7 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint
             return -1;
         }
     }
-    // TODO: print uint64_t?
-    printf("synced %s/%s (%lld bytes)\n", config.remote_dir, path, receive_len);
+    printf("synced %s/%s (%" PRIu64 " bytes)\n", config.remote_dir, path, receive_len);
 
     close(file_fd);
 

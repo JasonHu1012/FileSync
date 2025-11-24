@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include "json.h"
 #include "utils.h"
 #include "server_config.h"
@@ -221,7 +222,7 @@ int respond_info(int conn_fd, char **buf, uint64_t *buf_size) {
         free(path);
         return -1;
     }
-    printf("responded %s info (%lu bytes) (pid %d)\n", path, strlen(info_str), getpid());
+    printf("responded %s info (%zu bytes) (pid %d)\n", path, strlen(info_str), getpid());
 
     free(info_str);
     free(path);
@@ -288,7 +289,7 @@ int respond_content(int conn_fd, char **buf, uint64_t *buf_size) {
 
     // read file and send to client
     *buf_size = extend_buf(buf, *buf_size, BLOCK_SIZE);
-    long long send_len = 0;
+    uint64_t send_len = 0;
     while (send_len < st.st_size) {
         // read file
         int len = bulk_read(file_fd, *buf, BLOCK_SIZE);
@@ -311,7 +312,7 @@ int respond_content(int conn_fd, char **buf, uint64_t *buf_size) {
         }
         send_len += len;
     }
-    printf("responded %s content (%lld bytes) (pid %d)\n", path, send_len, getpid());
+    printf("responded %s content (%" PRIu64 " bytes) (pid %d)\n", path, send_len, getpid());
 
     free(path);
     close(file_fd);
