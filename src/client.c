@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/errno.h>
@@ -92,7 +93,7 @@ receive_fail:
 // request "{remote_dir}/{path}" content
 // received content will be written to file
 // return 0 when success, -1 when error
-int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint64_t *buf_size) {
+int request_content(int conn_fd, char *path, mode_t permission, time_t modify_time, char **buf, uint64_t *buf_size) {
     int const BLOCK_SIZE = 4096;
 
     // send [1][path length][path]
@@ -155,7 +156,6 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint
     }
 
     // get content and write to file
-    // TODO: make mtime equal for bidirectional sync
     *buf_size = extend_buf(buf, *buf_size, BLOCK_SIZE);
     uint64_t receive_len = 0;
     while (receive_len < message_len) {
@@ -174,6 +174,20 @@ int request_content(int conn_fd, char *path, mode_t permission, char **buf, uint
             close(file_fd);
             return -1;
         }
+    }
+
+    // make mtime equal for bidirectional sync
+    struct stat st;
+    if (fstat(file_fd, &st) == -1) {
+        ERR_LOG("get %s status failed", path);
+        return -1;
+    }
+    struct timeval tv[2] = { 0 };
+    tv[0].tv_sec = st.st_atime;
+    tv[1].tv_sec = modify_time;
+    if (futimes(file_fd, tv) == -1) {
+        ERR_LOG("set %s mtime failed", path);
+        return -1;
     }
     printf("synced %s/%s (%" PRIu64 " bytes)\n", config.remote_dir, path, receive_len);
 
@@ -217,7 +231,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
             if (stat(path, &st) == -1) {
                 if (errno == ENOENT) {
                     // the file doesn't exist, request content
-                    if (request_content(conn_fd, path, (mode_t)json_num_get(json_obj_get(sub_info, "permission")), buf, buf_size) == -1) {
+                    if (request_content(conn_fd, path, (mode_t)json_num_get(json_obj_get(sub_info, "permission")), (time_t)json_num_get(json_obj_get(sub_info, "updateTime")), buf, buf_size) == -1) {
                         free(path);
                         return -1;
                     }
@@ -231,10 +245,10 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
 
             else {
                 // compare update time
-                long long update_time = (long long)json_num_get(json_obj_get(sub_info, "updateTime"));
+                time_t update_time = (time_t)json_num_get(json_obj_get(sub_info, "updateTime"));
                 if (st.st_mtime < update_time) {
                     // local file is out of date, request content
-                    if (request_content(conn_fd, path, (mode_t)json_num_get(json_obj_get(sub_info, "permission")), buf, buf_size) == -1) {
+                    if (request_content(conn_fd, path, (mode_t)json_num_get(json_obj_get(sub_info, "permission")), (time_t)json_num_get(json_obj_get(sub_info, "updateTime")), buf, buf_size) == -1) {
                         free(path);
                         return -1;
                     }
