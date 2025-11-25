@@ -316,7 +316,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
 
             if (access(path, F_OK) == -1) {
                 // the directory doesn't exist
-                // add write permission to directory
+                // add write permission to parent directory
                 mode_t opermission;
                 if (add_dir_permission(path, 0200, &opermission) == -1) {
                     return -1;
@@ -328,7 +328,7 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
                 }
                 printf("created directory %s\n", path);
 
-                // reset directory permission
+                // reset parent directory permission
                 if (set_dir_permission(path, opermission) == -1) {
                     return -1;
                 }
@@ -438,6 +438,56 @@ finish:
 // return 0 when success, -1 when error
 int mkdir_full(char *path, mode_t mode) {
     list *names = lst_init(sizeof(char *));
+    int start = 0;
+    int len = strlen(path);
+    for (int i = 0; i < len; i++) {
+        if (path[i] != '/') {
+            continue;
+        }
+
+        if (start != i) {
+            char *name = (char *)malloc(sizeof(char) * (i - start + 1));
+            strncpy(name, path + start, i - start + 1);
+            lst_append(names, &name);
+        }
+        start = i + 1;
+    }
+    if (start != len) {
+        char *name = (char *)malloc(sizeof(char) * (len - start + 1));
+        strcpy(name, path + start);
+        lst_append(names, &name);
+    }
+
+    int dir_fd = open(".", O_SEARCH);
+    if (dir_fd == -1) {
+        ERR_LOG("open working directory failed");
+        return -1;
+    }
+    for (int i = 0; i < lst_size(names); i++) {
+        char *name;
+        lst_get(names, i, &name);
+
+        if (faccessat(dir_fd, name, F_OK, AT_EACCESS) == -1) {
+            // directory doesn't exist, create it
+            if (mkdirat(dir_fd, name, mode) == -1) {
+                ERR_LOG("create directory %s failed", name);
+                return -1;
+            }
+        }
+
+        int last_dir_fd = dir_fd;
+        dir_fd = openat(last_dir_fd, name, O_SEARCH);
+        if (dir_fd == -1) {
+            ERR_LOG("open directory %s failed", name);
+            return -1;
+        }
+
+        close(last_dir_fd);
+        free(name);
+    }
+    close(dir_fd);
+    lst_kill(names);
+
     return 0;
 }
 
@@ -449,8 +499,7 @@ int main(int argc, char **argv) {
 
     if (access(config.local_dir, F_OK) == -1) {
         // local directory doesn't exist, create it
-        // TODO: mkdir a/b/c
-        if (mkdir(config.local_dir, 0777) == -1) {
+        if (mkdir_full(config.local_dir, 0777) == -1) {
             ERR_LOG("create directory %s failed", config.local_dir);
         }
         else {
