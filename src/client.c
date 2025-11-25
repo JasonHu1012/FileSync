@@ -458,9 +458,10 @@ int mkdir_full(char *path, mode_t mode) {
         lst_append(names, &name);
     }
 
-    int dir_fd = open(".", O_SEARCH);
+    // open "/" if path is absolute path
+    int dir_fd = open(path[0] == '/' ? "/" : ".", O_SEARCH);
     if (dir_fd == -1) {
-        ERR_LOG("open working directory failed");
+        ERR_LOG("open directory %s failed", path[0] == '/' ? "/" : ".");
         return -1;
     }
     for (int i = 0; i < lst_size(names); i++) {
