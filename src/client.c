@@ -1,3 +1,4 @@
+// TODO: fault tolerance
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +13,9 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <inttypes.h>
+#include <libgen.h>
 #include "json.h"
+#include "list.h"
 #include "utils.h"
 #include "client_config.h"
 
@@ -90,6 +93,47 @@ receive_fail:
     return -1;
 }
 
+// add permission to directory of given file
+// original permission will be saved in `opermission`
+// return 0 when success, -1 when error
+int add_dir_permission(char *path, mode_t permission, mode_t *opermission) {
+    // dirname may modify content, so copy `path`
+    char *path_copy = (char *)malloc(sizeof(char) * (strlen(path) + 1));
+    strcpy(path_copy, path);
+    char *dir = dirname(path_copy);
+    free(path_copy);
+
+    struct stat st;
+    if (stat(dir, &st) == -1) {
+        ERR_LOG("get %s status failed", dir);
+        return -1;
+    }
+    if (chmod(dir, st.st_mode | permission) == -1) {
+        ERR_LOG("change %s mode failed", dir);
+        return -1;
+    }
+
+    *opermission = st.st_mode;
+    return 0;
+}
+
+// set permission to directory of given file
+// return 0 when success, -1 when error
+int set_dir_permission(char *path, mode_t permission) {
+    // dirname may modify content, so copy `path`
+    char *path_copy = (char *)malloc(sizeof(char) * (strlen(path) + 1));
+    strcpy(path_copy, path);
+    char *dir = dirname(path_copy);
+    free(path_copy);
+
+    if (chmod(dir, permission) == -1) {
+        ERR_LOG("change %s mode failed", dir);
+        return -1;
+    }
+
+    return 0;
+}
+
 // request "{remote_dir}/{path}" content
 // received content will be written to file
 // return 0 when success, -1 when error
@@ -148,9 +192,20 @@ int request_content(int conn_fd, char *path, mode_t permission, time_t modify_ti
     }
     else {
         // file doesn't exist, create it
+        // add write permission to directory
+        mode_t opermission;
+        if (add_dir_permission(path, 0200, &opermission) == -1) {
+            return -1;
+        }
+
         file_fd = open(path, O_WRONLY | O_CREAT | O_EXCL, permission);
         if (file_fd == -1) {
             ERR_LOG("open %s failed", path);
+            return -1;
+        }
+
+        // reset directory permission
+        if (set_dir_permission(path, opermission) == -1) {
             return -1;
         }
     }
@@ -189,7 +244,7 @@ int request_content(int conn_fd, char *path, mode_t permission, time_t modify_ti
         ERR_LOG("set %s mtime failed", path);
         return -1;
     }
-    printf("synced %s/%s (%" PRIu64 " bytes)\n", config.remote_dir, path, receive_len);
+    printf("synced %s (%" PRIu64 " bytes)\n", path, receive_len);
 
     close(file_fd);
 
@@ -261,12 +316,21 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
 
             if (access(path, F_OK) == -1) {
                 // the directory doesn't exist
-                // TODO: change permission after traversing it
+                // add write permission to directory
+                mode_t opermission;
+                if (add_dir_permission(path, 0200, &opermission) == -1) {
+                    return -1;
+                }
+
                 if (mkdir(path, (mode_t)json_num_get(json_obj_get(sub_info, "permission"))) == -1) {
                     ERR_LOG("create directory %s failed", path);
+                    return -1;
                 }
-                else {
-                    printf("create directory %s\n", path);
+                printf("created directory %s\n", path);
+
+                // reset directory permission
+                if (set_dir_permission(path, opermission) == -1) {
+                    return -1;
                 }
             }
 
@@ -368,6 +432,13 @@ finish:
     if (info) {
         json_kill(info);
     }
+}
+
+// create intermediate directory as required
+// return 0 when success, -1 when error
+int mkdir_full(char *path, mode_t mode) {
+    list *names = lst_init(sizeof(char *));
+    return 0;
 }
 
 int main(int argc, char **argv) {
