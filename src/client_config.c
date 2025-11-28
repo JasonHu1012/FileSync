@@ -43,16 +43,24 @@ static void load_config_arg(int argc, char **argv) {
 }
 
 static void load_config_file(char *path) {
+    char *DEFAULT_PATH = "config/client_config.json";
+
+    if (!path) {
+        path = DEFAULT_PATH;
+    }
+
     int fd = open(path, O_RDONLY);
     if (fd == -1) {
-        ERR_LOG("open config file %s failed", path);
+        if (path != DEFAULT_PATH) {
+            ERROR("open config file %s failed", path);
+        }
         return;
     }
 
     // get file size
     struct stat st;
     if (fstat(fd, &st) == -1) {
-        ERR_LOG("get config file %s status failed", path);
+        ERROR("get config file %s status failed", path);
         close(fd);
         return;
     }
@@ -63,7 +71,7 @@ static void load_config_file(char *path) {
     close(fd);
     if (len != st.st_size) {
         if (len == -1) {
-            ERR_LOG("read config file %s failed", path);
+            ERROR("read config file %s failed", path);
         }
         free(buf);
         return;
@@ -120,8 +128,6 @@ static void load_config_default() {
 }
 
 void load_config(int argc, char **argv) {
-    char const *FILE_PATH = "config/client_config.json";
-
     // initialize config
     config.port = -1;
     config.host = NULL;
@@ -133,23 +139,25 @@ void load_config(int argc, char **argv) {
     // config priority:
     // arg > file > default
     load_config_arg(argc, argv);
-    load_config_file(config.config_path == NULL ? (char *)FILE_PATH : config.config_path);
+    load_config_file(config.config_path);
     load_config_default();
 }
 
-void validate_config() {
+bool is_valid_config() {
     if (config.port < 0 || config.port > 65535) {
-        fprintf(stderr, "fatal: invalid port %d\n", config.port);
-        exit(1);
+        ERROR("invalid port %d", config.port);
+        return false;
     }
 
     // prohibit ".." in `remote_dir`
     for (int i = 0; config.remote_dir[i]; i++) {
         if (config.remote_dir[i] == '.' && config.remote_dir[i + 1] == '.') {
-            fprintf(stderr, "fatal: .. is prohibited in remote directory path\n");
-            exit(1);
+            ERROR(".. is prohibited in remote directory path");
+            return false;
         }
     }
+
+    return true;
 }
 
 void kill_config() {

@@ -8,10 +8,26 @@
 #include <string.h>
 #include <stdio.h>
 
-// use these when errno is set
-#define ERR_EXIT(...) do {fprintf(stderr, "fatal: "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s\n", strerror(errno)); exit(1);} while (0)
-#define ERR_LOG(...) do {fprintf(stderr, "error: "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s\n", strerror(errno));} while (0)
-#define ERR_PID_LOG(...) do {fprintf(stderr, "error: "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, ": %s (pid %d)\n", strerror(errno), getpid());} while (0)
+#define ERROR(...) do {\
+    fprintf(stderr, "[ERROR] ");\
+    fprintf(stderr, __VA_ARGS__);\
+    if (errno) {\
+        fprintf(stderr, ": %s", strerror(errno));\
+    }\
+    fprintf(stderr, "\n");\
+} while (0)
+
+#define WARN(...) do {\
+    fprintf(stderr, "[WARN] ");\
+    fprintf(stderr, __VA_ARGS__);\
+    fprintf(stderr, "\n");\
+} while (0)
+
+#define INFO(...) do {\
+    printf("[INFO] ");\
+    printf(__VA_ARGS__);\
+    printf("\n");\
+} while (0)
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 

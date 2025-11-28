@@ -1,4 +1,4 @@
-// TODO: fault tolerance
+// TODO: record error and summarize at last
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,11 +29,13 @@ void handler_sigint(int signum) {
     printf("and can't be updated with re-execution\n");
 }
 
+// return socket fd when success, -1 when error
 int init_socket(char *host, int port) {
     // socket
     int conn_fd = socket(PF_INET, SOCK_STREAM, 0);
     if (conn_fd == -1) {
-        ERR_EXIT("socket");
+        ERROR("socket");
+        return -1;
     }
 
     // connect
@@ -42,13 +44,14 @@ int init_socket(char *host, int port) {
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     if (inet_aton(host, &addr.sin_addr) == 0) {
-        fprintf(stderr, "fatal: invalid host %s\n", host);
-        exit(1);
+        ERROR("invalid host %s", host);
+        return -1;
     };
 
     if (connect(conn_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-        fprintf(stderr, "warning: is server alive?\n");
-        ERR_EXIT("connect to %s:%d failed", host, port);
+        ERROR("connect to %s:%d failed", host, port);
+        WARN("is server alive?");
+        return -1;
     }
 
     return conn_fd;
@@ -65,10 +68,10 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, uint64_t
     message_len = append_buf_charp(*buf, message_len, path);
 
     if (bulk_write(conn_fd, *buf, message_len) != message_len) {
-        ERR_LOG("request %s info failed", path);
+        ERROR("request %s info failed", path);
         return -1;
     }
-    printf("requested %s info\n", path);
+    INFO("requested %s info", path);
 
     // get requested result
     if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
@@ -81,7 +84,7 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, uint64_t
         goto receive_fail;
     }
     (*buf)[message_len] = 0;
-    printf("received %s info (%" PRIu64 " bytes)\n", path, message_len);
+    INFO("received %s info (%" PRIu64 " bytes)", path, message_len);
 
     // convert result to json
     *info = json_parse(*buf);
@@ -89,7 +92,7 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, uint64_t
     return 0;
 
 receive_fail:
-    ERR_LOG("receive %s info failed", path);
+    ERROR("receive %s info failed", path);
     return -1;
 }
 
@@ -105,11 +108,11 @@ int add_dir_permission(char *path, mode_t permission, mode_t *opermission) {
 
     struct stat st;
     if (stat(dir, &st) == -1) {
-        ERR_LOG("get %s status failed", dir);
+        ERROR("get %s status failed", dir);
         return -1;
     }
     if (chmod(dir, st.st_mode | permission) == -1) {
-        ERR_LOG("change %s mode failed", dir);
+        ERROR("change %s mode failed", dir);
         return -1;
     }
 
@@ -127,7 +130,7 @@ int set_dir_permission(char *path, mode_t permission) {
     free(path_copy);
 
     if (chmod(dir, permission) == -1) {
-        ERR_LOG("change %s mode failed", dir);
+        ERROR("change %s mode failed", dir);
         return -1;
     }
 
@@ -135,10 +138,35 @@ int set_dir_permission(char *path, mode_t permission) {
 }
 
 // request "{remote_dir}/{path}" content
-// received content will be written to file
+// received content will be written to file "{path}", which must exist
+// file mtime will be set to `modify_time`
 // return 0 when success, -1 when error
-int request_content(int conn_fd, char *path, mode_t permission, time_t modify_time, char **buf, uint64_t *buf_size) {
+int request_content(int conn_fd, char *path, time_t modify_time, char **buf, uint64_t *buf_size) {
     int const BLOCK_SIZE = 4096;
+
+    // open file
+    int file_fd;
+    // add write permission
+    struct stat st;
+    bool stat_success = true;
+    if (stat(path, &st) == -1) {
+        ERROR("get %s status failed", path);
+        stat_success = false;
+    }
+    if (stat_success && chmod(path, st.st_mode | 0200) == -1) {
+        ERROR("change %s mode failed", path);
+    }
+
+    file_fd = open(path, O_WRONLY | O_TRUNC);
+    if (file_fd == -1) {
+        ERROR("open %s failed", path);
+        return -1;
+    }
+
+    // reset permission
+    if (stat_success && chmod(path, st.st_mode) == -1) {
+        ERROR("reset %s mode failed", path);
+    }
 
     // send [1][path length][path]
     uint64_t message_len = sizeof(uint32_t) + sizeof(uint64_t) + strlen(config.remote_dir) + 1 + strlen(path);
@@ -150,65 +178,20 @@ int request_content(int conn_fd, char *path, mode_t permission, time_t modify_ti
     message_len = append_buf_charp(*buf, message_len, path);
 
     if (bulk_write(conn_fd, *buf, message_len) != message_len) {
-        ERR_LOG("request %s/%s content failed", config.remote_dir, path);
+        ERROR("request %s/%s content failed", config.remote_dir, path);
+        close(file_fd);
         return -1;
     }
-    printf("requested %s/%s content\n", config.remote_dir, path);
+    INFO("requested %s/%s content", config.remote_dir, path);
 
     // get requested content length
     if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
-        ERR_LOG("receive %s/%s content failed", config.remote_dir, path);
+        ERROR("receive %s/%s content failed", config.remote_dir, path);
+        close(file_fd);
         return -1;
     }
     message_len = my_ntohll(message_len);
-
-    // open file
-    int file_fd;
-    if (access(path, F_OK) == 0) {
-        // file exists
-        // add write permission
-        struct stat st;
-        if (stat(path, &st) == -1) {
-            ERR_LOG("get %s status failed", path);
-            return -1;
-        }
-        if (chmod(path, st.st_mode | 0200) == -1) {
-            ERR_LOG("change %s mode failed", path);
-            return -1;
-        }
-
-        file_fd = open(path, O_WRONLY | O_TRUNC);
-        if (file_fd == -1) {
-            ERR_LOG("open %s failed", path);
-            return -1;
-        }
-
-        // reset permission
-        if (chmod(path, st.st_mode) == -1) {
-            ERR_LOG("reset %s mode failed", path);
-            close(file_fd);
-            return -1;
-        }
-    }
-    else {
-        // file doesn't exist, create it
-        // add write permission to directory
-        mode_t opermission;
-        if (add_dir_permission(path, 0200, &opermission) == -1) {
-            return -1;
-        }
-
-        file_fd = open(path, O_WRONLY | O_CREAT | O_EXCL, permission);
-        if (file_fd == -1) {
-            ERR_LOG("open %s failed", path);
-            return -1;
-        }
-
-        // reset directory permission
-        if (set_dir_permission(path, opermission) == -1) {
-            return -1;
-        }
-    }
+    INFO("receiving %s/%s content", config.remote_dir, path);
 
     // get content and write to file
     *buf_size = extend_buf(buf, *buf_size, BLOCK_SIZE);
@@ -217,7 +200,7 @@ int request_content(int conn_fd, char *path, mode_t permission, time_t modify_ti
         // get content
         int len = bulk_read(conn_fd, *buf, MIN(BLOCK_SIZE, message_len - receive_len));
         if (len == 0 || len == -1) {
-            ERR_LOG("receive %s/%s content failed", config.remote_dir, path);
+            ERROR("receive %s/%s content failed", config.remote_dir, path);
             close(file_fd);
             return -1;
         }
@@ -225,32 +208,35 @@ int request_content(int conn_fd, char *path, mode_t permission, time_t modify_ti
 
         // write to file
         if (bulk_write(file_fd, *buf, len) != len) {
-            ERR_LOG("write %s/%s content to file failed", config.remote_dir, path);
+            ERROR("write %s/%s content to file failed", config.remote_dir, path);
             close(file_fd);
             return -1;
         }
     }
 
     // make mtime equal for bidirectional sync
-    struct stat st;
     if (fstat(file_fd, &st) == -1) {
-        ERR_LOG("get %s status failed", path);
-        return -1;
+        ERROR("get %s status failed", path);
     }
-    struct timeval tv[2] = { 0 };
-    tv[0].tv_sec = st.st_atime;
-    tv[1].tv_sec = modify_time;
-    if (futimes(file_fd, tv) == -1) {
-        ERR_LOG("set %s mtime failed", path);
-        return -1;
+    else {
+        struct timeval tv[2] = { 0 };
+        // remain atime
+        tv[0].tv_sec = st.st_atime;
+        // set mtime equal to server file
+        tv[1].tv_sec = modify_time;
+        if (futimes(file_fd, tv) == -1) {
+            ERROR("set %s mtime failed", path);
+        }
     }
-    printf("synced %s (%" PRIu64 " bytes)\n", path, receive_len);
+    INFO("synced %s (%" PRIu64 " bytes)", path, receive_len);
 
     close(file_fd);
 
     return 0;
 }
 
+// `prefix` indicates "./" if it's NULL
+// the directory "{prefix}" must exist
 // return 0 when success, -1 when error
 int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *buf_size) {
     // handle sigint
@@ -280,71 +266,77 @@ int traverse(int conn_fd, json_data *info, char *prefix, char **buf, uint64_t *b
 
         char *type = json_str_get(json_obj_get(sub_info, "type"));
         if (!strcmp(type, "file")) {
-            free(type);
+            if (access(path, F_OK) == -1) {
+                // file doesn't exist, create it and request content
+                // add write permission to directory
+                mode_t opermission;
+                bool add_permission_success = true;
+                if (add_dir_permission(path, 0200, &opermission) == -1) {
+                    add_permission_success = false;
+                }
 
-            struct stat st;
-            if (stat(path, &st) == -1) {
-                if (errno == ENOENT) {
-                    // the file doesn't exist, request content
-                    if (request_content(conn_fd, path, (mode_t)json_num_get(json_obj_get(sub_info, "permission")), (time_t)json_num_get(json_obj_get(sub_info, "updateTime")), buf, buf_size) == -1) {
-                        free(path);
-                        return -1;
-                    }
+                int file_fd = open(path, O_CREAT | O_EXCL, (mode_t)json_num_get(json_obj_get(sub_info, "permission")));
+                if (file_fd == -1) {
+                    ERROR("create %s failed", path);
+                    goto finish_current;
                 }
-                else {
-                    ERR_LOG("get %s status failed", path);
-                    free(path);
-                    return -1;
+                close(file_fd);
+                INFO("created %s", path);
+
+                // reset directory permission
+                if (add_permission_success) {
+                    set_dir_permission(path, opermission);
                 }
+
+                request_content(conn_fd, path, (time_t)json_num_get(json_obj_get(sub_info, "updateTime")), buf, buf_size);
+                goto finish_current;
             }
 
-            else {
-                // compare update time
-                time_t update_time = (time_t)json_num_get(json_obj_get(sub_info, "updateTime"));
-                if (st.st_mtime < update_time) {
-                    // local file is out of date, request content
-                    if (request_content(conn_fd, path, (mode_t)json_num_get(json_obj_get(sub_info, "permission")), (time_t)json_num_get(json_obj_get(sub_info, "updateTime")), buf, buf_size) == -1) {
-                        free(path);
-                        return -1;
-                    }
-                }
+            // compare update time
+            struct stat st;
+            if (stat(path, &st) == -1) {
+                ERROR("get %s status failed", path);
+                goto finish_current;
+            }
+            time_t update_time = (time_t)json_num_get(json_obj_get(sub_info, "updateTime"));
+            if (st.st_mtime < update_time) {
+                // local file is out of date, request content
+                request_content(conn_fd, path, (time_t)json_num_get(json_obj_get(sub_info, "updateTime")), buf, buf_size);
             }
         }
 
         else if (!strcmp(type, "directory")) {
-            free(type);
-
             if (access(path, F_OK) == -1) {
-                // the directory doesn't exist
+                // the directory doesn't exist, create it
                 // add write permission to parent directory
                 mode_t opermission;
+                bool add_permission_success = true;
                 if (add_dir_permission(path, 0200, &opermission) == -1) {
-                    return -1;
+                    add_permission_success = false;
                 }
 
                 if (mkdir(path, (mode_t)json_num_get(json_obj_get(sub_info, "permission"))) == -1) {
-                    ERR_LOG("create directory %s failed", path);
-                    return -1;
+                    ERROR("create directory %s failed", path);
+                    goto finish_current;
                 }
-                printf("created directory %s\n", path);
+                INFO("created directory %s", path);
 
                 // reset parent directory permission
-                if (set_dir_permission(path, opermission) == -1) {
-                    return -1;
+                if (add_permission_success) {
+                    set_dir_permission(path, opermission);
                 }
             }
 
-            if (traverse(conn_fd, sub_info, path, buf, buf_size) == -1) {
-                free(path);
-                return -1;
-            }
+            // unlike server, client doesn't chdir because client must request content with full path
+            traverse(conn_fd, sub_info, path, buf, buf_size);
         }
 
         else {
-            fprintf(stderr, "warning: unknown type %s\n", type);
-            free(type);
+            WARN("unknown type %s of file %s", type, path);
         }
 
+finish_current:
+        free(type);
         free(path);
 
         // check whether sigint was raised when updating files
@@ -365,10 +357,10 @@ int send_exit(int conn_fd, char **buf, uint64_t *buf_size) {
     *buf_size = extend_buf(buf, *buf_size, sizeof(uint32_t));
     append_buf_uint32(*buf, 0, htonl(2));
     if (bulk_write(conn_fd, *buf, sizeof(uint32_t)) != sizeof(uint32_t)) {
-        ERR_LOG("send exit message failed");
+        ERROR("send exit message failed");
         return -1;
     }
-    printf("sent exit message\n");
+    INFO("sent exit message");
 
     return 0;
 }
@@ -379,26 +371,26 @@ int request_working_dir(int conn_fd, char **buf, uint64_t *buf_size) {
     *buf_size = extend_buf(buf, *buf_size, sizeof(uint32_t));
     append_buf_uint32(*buf, 0, htonl(3));
     if (bulk_write(conn_fd, *buf, sizeof(uint32_t)) != sizeof(uint32_t)) {
-        ERR_LOG("request working directory failed");
+        ERROR("request working directory failed");
         return -1;
     }
-    printf("requested working directory\n");
+    INFO("requested working directory");
 
     // get requested result
     uint64_t message_len;
     if (bulk_read(conn_fd, &message_len, sizeof(uint64_t)) != sizeof(uint64_t)) {
-        ERR_LOG("receive working directory failed");
+        ERROR("receive working directory failed");
         return -1;
     }
     message_len = my_ntohll(message_len);
 
     *buf_size = extend_buf(buf, *buf_size, message_len);
     if (bulk_read(conn_fd, *buf, message_len) != message_len) {
-        ERR_LOG("receive working directory failed");
+        ERROR("receive working directory failed");
         return -1;
     }
     (*buf)[message_len] = 0;
-    printf("server is working at %s\n", *buf);
+    INFO("server is working at %s", *buf);
 
     return 0;
 }
@@ -406,8 +398,8 @@ int request_working_dir(int conn_fd, char **buf, uint64_t *buf_size) {
 void communicate(int conn_fd) {
     uint64_t const INIT_BUF_SIZE = 128;
 
-    // not including the terminating '\0'
     uint64_t buf_size = INIT_BUF_SIZE;
+    // `buf_size` doesn't include the terminating '\0', so + 1
     char *buf = (char *)malloc(sizeof(char) * (buf_size + 1));
 
     json_data *info = NULL;
@@ -432,6 +424,16 @@ finish:
     if (info) {
         json_kill(info);
     }
+}
+
+// TODO: consider add lst_kill_f in Clibrary
+void kill_charp_list(list *lst) {
+    for (int i = 0; i < lst_size(lst); i++) {
+        char *name;
+        lst_get(lst, i, &name);
+        free(name);
+    }
+    lst_kill(lst);
 }
 
 // create intermediate directory as required
@@ -461,9 +463,11 @@ int mkdir_full(char *path, mode_t mode) {
     // open "/" if path is absolute path
     int dir_fd = open(path[0] == '/' ? "/" : ".", O_SEARCH);
     if (dir_fd == -1) {
-        ERR_LOG("open directory %s failed", path[0] == '/' ? "/" : ".");
+        ERROR("open directory %s failed", path[0] == '/' ? "/" : ".");
+        kill_charp_list(names);
         return -1;
     }
+
     for (int i = 0; i < lst_size(names); i++) {
         char *name;
         lst_get(names, i, &name);
@@ -471,57 +475,64 @@ int mkdir_full(char *path, mode_t mode) {
         if (faccessat(dir_fd, name, F_OK, AT_EACCESS) == -1) {
             // directory doesn't exist, create it
             if (mkdirat(dir_fd, name, mode) == -1) {
-                ERR_LOG("create directory %s failed", name);
+                ERROR("create directory %s failed", name);
+                kill_charp_list(names);
+                close(dir_fd);
                 return -1;
             }
         }
 
         int last_dir_fd = dir_fd;
         dir_fd = openat(last_dir_fd, name, O_SEARCH);
+        close(last_dir_fd);
         if (dir_fd == -1) {
-            ERR_LOG("open directory %s failed", name);
+            ERROR("open directory %s failed", name);
+            kill_charp_list(names);
             return -1;
         }
-
-        close(last_dir_fd);
-        free(name);
     }
     close(dir_fd);
-    lst_kill(names);
+    kill_charp_list(names);
 
     return 0;
 }
 
 int main(int argc, char **argv) {
     load_config(argc, argv);
-    validate_config();
+    if (!is_valid_config()) {
+        kill_config();
+        return 1;
+    }
     printf("config:\n  host = %s\n  port = %d\n  remote directory = %s\n  local directory = %s\n\n",
         config.host, config.port, config.remote_dir, config.local_dir);
 
     if (access(config.local_dir, F_OK) == -1) {
         // local directory doesn't exist, create it
-        if (mkdir_full(config.local_dir, 0777) == -1) {
-            ERR_LOG("create directory %s failed", config.local_dir);
-        }
-        else {
-            printf("created directory %s\n", config.local_dir);
+        if (mkdir_full(config.local_dir, 0777) == 0) {
+            INFO("created directory %s", config.local_dir);
         }
     }
 
     if (chdir(config.local_dir) == -1) {
-        ERR_EXIT("change working directory to %s failed", config.local_dir);
+        ERROR("change working directory to %s failed", config.local_dir);
+        kill_config();
+        return 1;
     }
     char *cwd = getcwd(NULL, 0);
-    printf("sync to local directory %s\n", cwd);
+    INFO("syncing to local directory %s", cwd);
     free(cwd);
 
     int conn_fd = init_socket(config.host, config.port);
-    printf("connected to %s:%d\n", config.host, config.port);
+    if (conn_fd == -1) {
+        kill_config();
+        return 1;
+    }
+    INFO("connected to %s:%d", config.host, config.port);
 
     communicate(conn_fd);
 
     close(conn_fd);
-    printf("disconnect\n");
+    INFO("disconnected");
 
     kill_config();
 
