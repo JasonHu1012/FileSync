@@ -426,16 +426,6 @@ finish:
     }
 }
 
-// TODO: consider add lst_kill_f in Clibrary
-void kill_charp_list(list *lst) {
-    for (int i = 0; i < lst_size(lst); i++) {
-        char *name;
-        lst_get(lst, i, &name);
-        free(name);
-    }
-    lst_kill(lst);
-}
-
 // create intermediate directory as required
 // return 0 when success, -1 when error
 int mkdir_full(char *path, mode_t mode) {
@@ -464,7 +454,7 @@ int mkdir_full(char *path, mode_t mode) {
     int dir_fd = open(path[0] == '/' ? "/" : ".", O_SEARCH);
     if (dir_fd == -1) {
         ERROR("open directory %s failed", path[0] == '/' ? "/" : ".");
-        kill_charp_list(names);
+        lst_kill_f(names, free);
         return -1;
     }
 
@@ -476,7 +466,7 @@ int mkdir_full(char *path, mode_t mode) {
             // directory doesn't exist, create it
             if (mkdirat(dir_fd, name, mode) == -1) {
                 ERROR("create directory %s failed", name);
-                kill_charp_list(names);
+                lst_kill_f(names, free);
                 close(dir_fd);
                 return -1;
             }
@@ -487,12 +477,12 @@ int mkdir_full(char *path, mode_t mode) {
         close(last_dir_fd);
         if (dir_fd == -1) {
             ERROR("open directory %s failed", name);
-            kill_charp_list(names);
+            lst_kill_f(names, free);
             return -1;
         }
     }
     close(dir_fd);
-    kill_charp_list(names);
+    lst_kill_f(names, free);
 
     return 0;
 }
