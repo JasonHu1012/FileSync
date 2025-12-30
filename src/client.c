@@ -19,7 +19,7 @@
 #include "utils.h"
 #include "client_config.h"
 
-bool raised_sigint = false;
+volatile bool raised_sigint = false;
 
 void handler_sigint(int signum) {
     raised_sigint = true;
