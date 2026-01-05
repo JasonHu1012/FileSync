@@ -24,9 +24,10 @@ volatile bool raised_sigint = false;
 void handler_sigint(int signum) {
     raised_sigint = true;
 
-    printf("received SIGINT, will terminate after updating current file\n");
-    printf("use ^\\ to terminate forcibly, but current file may be incomplete\n");
-    printf("and can't be updated with re-execution\n");
+    char *message = "received SIGINT, will terminate after updating current file\n"
+        "use ^\\ to terminate forcibly, but current file may be incomplete\n"
+        "and can't be updated with re-execution\n";
+    write(2, message, strlen(message));
 }
 
 // return socket fd when success, -1 when error
