@@ -88,6 +88,10 @@ int request_info(int conn_fd, char *path, json_data **info, char **buf, uint64_t
     INFO("received %s info (%" PRIu64 " bytes)", path, message_len);
 
     // convert result to json
+    if (!json_is_valid(*buf)) {
+        ERROR("received info is invalid");
+        return -1;
+    }
     *info = json_parse(*buf);
 
     return 0;
