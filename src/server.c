@@ -224,7 +224,7 @@ int respond_info(int conn_fd, char **buf, uint64_t *buf_size) {
     }
 
     // send to client
-    char *info_str = json_to_str(info, false);
+    char *info_str = json_to_str(info, -1, false);
     json_kill(info);
 
     char *path = (char *)malloc(sizeof(char) * (strlen(*buf) + 1));
@@ -486,14 +486,18 @@ int main(int argc, char **argv) {
         }
 
         if (pid == 0) {
-            // child
             close(sock_fd);
+
+            reset_log_cnt();
 
             INFO("connected from %s:%d (pid %d)", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port), getpid());
             communicate(conn_fd);
 
             close(conn_fd);
             INFO("disconnected %s:%d (pid %d)", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port), getpid());
+
+            printf("there are %d warnings and %d errors (pid %d)\n", warn_cnt(), error_cnt(), getpid());
+
             kill_config();
             return 0;
         }

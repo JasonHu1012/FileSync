@@ -3,6 +3,67 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <stdarg.h>
+
+typedef struct {
+    int warn;
+    int error;
+} log_counter;
+
+log_counter log_cnt;
+
+void ERROR(char *format, ...) {
+    log_cnt.error++;
+
+    fprintf(stderr, "[ERROR] ");
+
+    va_list args;
+    va_start(args, format);
+    vfprintf(stderr, format, args);
+    va_end(args);
+
+    if (errno) {
+        fprintf(stderr, ": %s", strerror(errno));
+    }
+    fprintf(stderr, "\n");
+}
+
+void WARN(char *format, ...) {
+    log_cnt.warn++;
+
+    fprintf(stderr, "[WARN] ");
+
+    va_list args;
+    va_start(args, format);
+    vfprintf(stderr, format, args);
+    va_end(args);
+
+    fprintf(stderr, "\n");
+}
+
+void INFO(char *format, ...) {
+    printf("[INFO] ");
+
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+
+    printf("\n");
+}
+
+void reset_log_cnt() {
+    log_cnt.warn = 0;
+    log_cnt.error = 0;
+}
+
+int warn_cnt() {
+    return log_cnt.warn;
+}
+
+int error_cnt() {
+    return log_cnt.error;
+}
 
 uint64_t extend_buf(char **buf, uint64_t buf_size, uint64_t new_buf_size) {
     if (buf_size >= new_buf_size) {

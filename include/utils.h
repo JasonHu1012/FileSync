@@ -8,28 +8,16 @@
 #include <string.h>
 #include <stdio.h>
 
-#define ERROR(...) do {\
-    fprintf(stderr, "[ERROR] ");\
-    fprintf(stderr, __VA_ARGS__);\
-    if (errno) {\
-        fprintf(stderr, ": %s", strerror(errno));\
-    }\
-    fprintf(stderr, "\n");\
-} while (0)
-
-#define WARN(...) do {\
-    fprintf(stderr, "[WARN] ");\
-    fprintf(stderr, __VA_ARGS__);\
-    fprintf(stderr, "\n");\
-} while (0)
-
-#define INFO(...) do {\
-    printf("[INFO] ");\
-    printf(__VA_ARGS__);\
-    printf("\n");\
-} while (0)
-
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+// treat them as printf, but don't need to add \n
+void ERROR(char * format, ...);
+void WARN(char * format, ...);
+void INFO(char * format, ...);
+
+void reset_log_cnt();
+int warn_cnt();
+int error_cnt();
 
 // extend `*buf` to at least `new_buf_size` long, data may be cleared
 // `new_buf_size` doesn't include the terminating '\0'

@@ -493,10 +493,12 @@ int mkdir_full(char *path, mode_t mode) {
 }
 
 int main(int argc, char **argv) {
+    int ret = 0;
+
     load_config(argc, argv);
     if (!is_valid_config()) {
-        kill_config();
-        return 1;
+        ret = 1;
+        goto finish;
     }
     printf("config:\n  host = %s\n  port = %d\n  remote directory = %s\n  local directory = %s\n\n",
         config.host, config.port, config.remote_dir, config.local_dir);
@@ -510,8 +512,8 @@ int main(int argc, char **argv) {
 
     if (chdir(config.local_dir) == -1) {
         ERROR("change working directory to %s failed", config.local_dir);
-        kill_config();
-        return 1;
+        ret = 1;
+        goto finish;
     }
     char *cwd = getcwd(NULL, 0);
     INFO("syncing to local directory %s", cwd);
@@ -519,8 +521,8 @@ int main(int argc, char **argv) {
 
     int conn_fd = init_socket(config.host, config.port);
     if (conn_fd == -1) {
-        kill_config();
-        return 1;
+        ret = 1;
+        goto finish;
     }
     INFO("connected to %s:%d", config.host, config.port);
 
@@ -529,7 +531,9 @@ int main(int argc, char **argv) {
     close(conn_fd);
     INFO("disconnected");
 
-    kill_config();
+finish:
+    printf("there are %d warnings and %d errors\n", warn_cnt(), error_cnt());
 
-    return 0;
+    kill_config();
+    return ret;
 }
