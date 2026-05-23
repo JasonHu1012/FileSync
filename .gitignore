@@ -2,3 +2,4 @@
 server
 client
 .*.swp
+.DS_Store

@@ -1,4 +1,3 @@
-// TODO: record error and summarize at last
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -444,7 +443,8 @@ int mkdir_full(char *path, mode_t mode) {
 
         if (start != i) {
             char *name = (char *)malloc(sizeof(char) * (i - start + 1));
-            strncpy(name, path + start, i - start + 1);
+            strncpy(name, path + start, i - start);
+            name[i - start] = 0;
             lst_append(names, &name);
         }
         start = i + 1;
@@ -456,7 +456,7 @@ int mkdir_full(char *path, mode_t mode) {
     }
 
     // open "/" if path is absolute path
-    int dir_fd = open(path[0] == '/' ? "/" : ".", O_SEARCH);
+    int dir_fd = open(path[0] == '/' ? "/" : ".", O_RDONLY | O_DIRECTORY);
     if (dir_fd == -1) {
         ERROR("open directory %s failed", path[0] == '/' ? "/" : ".");
         lst_kill_f(names, free);
@@ -478,7 +478,7 @@ int mkdir_full(char *path, mode_t mode) {
         }
 
         int last_dir_fd = dir_fd;
-        dir_fd = openat(last_dir_fd, name, O_SEARCH);
+        dir_fd = openat(last_dir_fd, name, O_RDONLY | O_DIRECTORY);
         close(last_dir_fd);
         if (dir_fd == -1) {
             ERROR("open directory %s failed", name);
