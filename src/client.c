@@ -108,7 +108,6 @@ int add_dir_permission(char *path, mode_t permission, mode_t *opermission) {
     char *path_copy = (char *)malloc(sizeof(char) * (strlen(path) + 1));
     strcpy(path_copy, path);
     char *dir = dirname(path_copy);
-    free(path_copy);
 
     struct stat st;
     if (stat(dir, &st) == -1) {
@@ -121,6 +120,7 @@ int add_dir_permission(char *path, mode_t permission, mode_t *opermission) {
     }
 
     *opermission = st.st_mode;
+    free(path_copy);
     return 0;
 }
 
@@ -131,13 +131,13 @@ int set_dir_permission(char *path, mode_t permission) {
     char *path_copy = (char *)malloc(sizeof(char) * (strlen(path) + 1));
     strcpy(path_copy, path);
     char *dir = dirname(path_copy);
-    free(path_copy);
 
     if (chmod(dir, permission) == -1) {
         ERROR("change %s mode failed", dir);
         return -1;
     }
 
+    free(path_copy);
     return 0;
 }
 
